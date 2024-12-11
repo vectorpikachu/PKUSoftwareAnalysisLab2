@@ -1,6 +1,11 @@
 pub mod lia {
-    use crate::base::function::{ExecError, PositionedExecutable};
+    use std::{cell::RefCell, rc::Rc, sync::Arc};
 
+    use sexp::Error;
+
+    use crate::{base::{function::{ExecError, PositionedExecutable}, language::Type, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}};
+
+    #[derive(Clone, Copy)]
     enum Types {
         Int,
         Bool,
@@ -8,9 +13,41 @@ pub mod lia {
     }
     #[derive(Debug, Clone, Copy)]
     enum Values{
-        Int(i32),
+        Int(i64),
         Bool(bool),
     }
+
+    impl AtomParser for Values {
+        fn parse(input: &sexp::Atom) -> Result<Self, String> {
+            match input {
+                sexp::Atom::I(i) => Ok(Values::Int(*i)),
+                // 注意本次作业似乎没有 Bool 字面量
+                sexp::Atom::S(s) => {
+                    match s.as_str() {
+                        "true" => Ok(Values::Bool(true)),
+                        "false" => Ok(Values::Bool(false)),
+                        _ => Err(format!("Unknown value: {}", s))
+                    }
+                },
+                sexp::Atom::F(_) => Err("Floats are not supported".to_string())
+            }
+        }
+    }
+
+    impl Type for Types {
+        fn from_identifier(identifier: &str) -> Option<Self> {
+            match identifier {
+                "Int" => Some(Types::Int),
+                "Bool" => Some(Types::Bool),
+                _ => None
+            }
+        }
+
+        fn from_function(args: Vec<Self>, return_type: Self) -> Self {
+            Types::Function
+        }
+    }
+
     enum BuiltIn {
         Add,
         Sub,
@@ -61,6 +98,23 @@ pub mod lia {
                 }
             };
             omit_error_unless_debug(res)
+        }
+    }
+    use parser::rc_function_var_context::Context;
+    fn get_empty_context_with_builtin<'a>() -> Context<'a, String, Values, Types> {
+        let mut context = parser::rc_function_var_context::Context::<String, Values, Types>::new(None);
+        context.add_and_set_function_var("+".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltInFun{tag: BuiltIn::Add})));
+        context.add_and_set_function_var("-".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltInFun{tag: BuiltIn::Sub})));
+        context.add_and_set_function_var("=".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltInFun{tag: BuiltIn::Eq})));
+        context
+    }
+    fn test_run(input: &Vec<sexp::Sexp>) {
+        let mut context = get_empty_context_with_builtin();
+        // let ctx_rc: Rc<RefCell<Context<String, Values, Types>>> = Rc::new(RefCell::new(context));
+        for command in input {
+            // let ctx_rc1 = ctx_rc.clone();
+            // let mut ctx_ref = ctx_rc1.borrow_mut();
+            Command::<String, Values, Types>::parse(command, &mut context);
         }
     } 
 
