@@ -5,13 +5,13 @@ pub mod lia {
 
     use crate::{base::{function::{ExecError, PositionedExecutable}, language::Type, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}};
 
-    #[derive(Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Types {
         Int,
         Bool,
         Function
     }
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Values{
         Int(i64),
         Bool(bool),
@@ -108,14 +108,51 @@ pub mod lia {
         context.add_and_set_function_var("=".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltInFun{tag: BuiltIn::Eq})));
         context
     }
-    fn test_run(input: &Vec<sexp::Sexp>) {
+    fn test_fun(ctx: &mut Context<String, Values, Types>, input: &str) -> () {
+        ()
+    }
+    fn test_run(input: &Vec<sexp::Sexp>) -> Arc<Context<String, Values, Types>> {
         let mut context = get_empty_context_with_builtin();
-        // let ctx_rc: Rc<RefCell<Context<String, Values, Types>>> = Rc::new(RefCell::new(context));
+        let mut defines: Vec<_> = Vec::new();
         for command in input {
-            // let ctx_rc1 = ctx_rc.clone();
-            // let mut ctx_ref = ctx_rc1.borrow_mut();
-            Command::<String, Values, Types>::parse(command, &mut context);
+            let res = Command::<String, Values, Types>::parse(command, &mut context);
+            match res {
+                Ok(c) => {
+                    match c {
+                        Command::DefineFun(d) => {
+                            defines.push(d);
+                        },
+                        _ => ()
+                    }
+                },
+                Err(e) => panic!("Error: {:?}", e)
+            }
         }
+        let rc_context = Arc::new(context);
+        for define in defines {
+            match define.context.set(rc_context.clone()) {
+                Ok(_) => (),
+                Err(_) => panic!("Error")   // 不应出现
+            }
+        }
+        rc_context
+        
     } 
+    #[test]
+    fn simple_test() {
+        let code = "((define-fun add ((x Int) (y Int)) Int (+ (+ x 1) y)))";
+        let input = sexp::parse(code).unwrap();
+        match input {
+            sexp::Sexp::List(v) => {
+                let final_ctx = test_run(&v);
+                final_ctx.get_value("+".to_string()).unwrap().expect_right("error");
+                let f = final_ctx.get_value("add".to_string()).unwrap().expect_right("error");
+                let res = f.execute(vec![Values::Int(1), Values::Int(2)]).unwrap();
+                assert_eq!(res, Values::Int(4));
+            },
+            _ => panic!("Expected a list")
+        }
+        ;
+    }
 
 }

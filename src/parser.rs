@@ -1,5 +1,7 @@
 pub mod parser{
 
+    use std::cell::OnceCell;
+
     use crate::base::{function::{PositionedExecutable, VarIndex}, language::{DefineFun, Exp, Terms, Type}, logic::{parse_logic_tag, LogicTag}, scope::{Scope, ScopeImpl}};
 
     pub trait AtomParser 
@@ -47,12 +49,12 @@ pub mod parser{
         fn parse(input: &sexp::Sexp) -> Result<Self, String> {
             match input {
                 sexp::Sexp::Atom(atom) => Self::parse(atom),
-                _ => Err("Expected an atom".to_string())
+                _ => Err(format!("Expected an atom, got {:?}", input))
             }
         }
     }
 
-    pub trait ContextSexpParser<'a, Identifier, Values, FunctionVar, Types, Context>
+    pub trait ContextSexpParser<Identifier, Values, FunctionVar, Types, Context>
     where Self: Sized,
           Identifier: Sized + AtomParser + Clone,
           Values: Sized + AtomParser + Copy,
@@ -61,9 +63,9 @@ pub mod parser{
           Context: Scope<Identifier, Types, Values, FunctionVar>
     {
         fn head() -> sexp::Atom;
-        fn parse(input: &sexp::Sexp, context: &'a Context) -> Result<Self, String>;
+        fn parse(input: &sexp::Sexp, context: &Context) -> Result<Self, String>;
     }
-    pub trait MutContextSexpParser<'a, Identifier, Values, FunctionVar, Types, Context>
+    pub trait MutContextSexpParser<Identifier, Values, FunctionVar, Types, Context>
     where Self: Sized,
           Identifier: Sized + AtomParser + Clone,
           Values: Sized + AtomParser + Copy,
@@ -72,7 +74,7 @@ pub mod parser{
           Context: Scope<Identifier, Types, Values, FunctionVar>
     {
         fn head() -> sexp::Atom;
-        fn parse(input: &sexp::Sexp, context: &'a mut Context) -> Result<Self, String>;
+        fn parse(input: &sexp::Sexp, context: &mut Context) -> Result<Self, String>;
     }
 
 
@@ -166,7 +168,7 @@ pub mod parser{
         FunctionVar: PositionedExecutable<Identifier, Values, Values>,
         Types: ContextFreeSexpParser + Type + Copy,
         Context: Scope<Identifier, Types, Values, FunctionVar>
-    > ContextFreeSexpParser for DefineFun<'a, Identifier, Values, Types, FunctionVar, Context> {
+    > ContextFreeSexpParser for DefineFun<Identifier, Values, Types, FunctionVar, Context> {
         fn parse(input: &sexp::Sexp) -> Result<Self, String> {
             let inputs = match input {
                 sexp::Sexp::List(inputs) => inputs,
@@ -195,14 +197,14 @@ pub mod parser{
                 }
                 _ => return Err("Expected a list in the third position of define-fun".to_string())
             };
-            let return_type: Types = ContextFreeSexpParser::parse(&inputs[4])?; 
-            let body = parse_exp(&inputs[3])?;
+            let return_type: Types = ContextFreeSexpParser::parse(&inputs[3])?; 
+            let body = parse_exp(&inputs[4])?;
             Ok(
                 DefineFun {
                     name: id.to_name(),
                     var_index: id,
                     args,
-                    context: None,
+                    context: OnceCell::new(),
                     return_type,
                     body,
                     _phantom: std::marker::PhantomData
@@ -236,7 +238,8 @@ pub mod rc_function_var_context {
     use crate::base::scope::{Scope, ScopeImpl};
     pub type Context<'a, Identifier, Values, Types> = ScopeImpl<Identifier, Types, Values, RcFunctionVar<'a, Identifier, Values>>;
     pub enum Command<
-        'a, Identifier: VarIndex + Clone + Eq + Hash + Debug,
+        'a,
+        Identifier: VarIndex + Clone + Eq + Hash + Debug,
         PrimValues: Copy,
         Types: Copy
     > {
@@ -245,9 +248,9 @@ pub mod rc_function_var_context {
         // TODO
     }  
 
-    type DefineFun<'a, Identifier, Values, Types> = BaseDefineFun<'a, Identifier, Values, Types, RcFunctionVar<'a, Identifier, Values>, Context<'a, Identifier, Values, Types>>;
-    impl <'a, Identifier, Values, Types> MutContextSexpParser <
-        'a,
+    type DefineFun<'a, Identifier, Values, Types> = BaseDefineFun<Identifier, Values, Types, RcFunctionVar<'a, Identifier, Values>, Context<'a, Identifier, Values, Types>>;
+    impl <'a, 'b, Identifier, Values, Types> MutContextSexpParser <
+        
         Identifier,
         Values,
         RcFunctionVar<'a, Identifier, Values>,
@@ -256,14 +259,14 @@ pub mod rc_function_var_context {
     >
     
     for Command<'a, Identifier, Values, Types>
-    where Identifier: AtomParser + VarIndex + Eq + Clone + Hash + Debug,
-          Values: AtomParser + Copy + Debug,
-          Types: ContextFreeSexpParser + Copy + Type
+    where Identifier: AtomParser + VarIndex + Eq + Clone + Hash + Debug + 'static,  // 不想再和生命周期斗争了
+          Values: AtomParser + Copy + Debug + 'static,
+          Types: ContextFreeSexpParser + Copy + Type + 'static
     {
         fn head() -> sexp::Atom {
             sexp::Atom::S(" ".to_string())
         }
-        fn parse(input: &sexp::Sexp, context: &'a mut Context<'a, Identifier, Values, Types>) -> Result<Self, String> {
+        fn parse(input: &sexp::Sexp, context: &mut Context<'a, Identifier, Values, Types>) -> Result<Self, String> {
             match input {
                 sexp::Sexp::List(list) => {
                     if list.len() == 0 {
@@ -274,7 +277,7 @@ pub mod rc_function_var_context {
                         if let sexp::Atom::S(s) = atom {
                             match s.as_str() {
                                 "define-fun" => {
-                                    let declare_fun = DefineFun::<'a, Identifier, Values, Types>::parse(input)?;
+                                    let declare_fun = DefineFun::<Identifier, Values, Types>::parse(input)?;
                                     let args_type = declare_fun.args.iter().map(|(_, t)| t.clone()).collect();
                                     let var_index = declare_fun.var_index.clone();
                                     let return_type = declare_fun.return_type;
@@ -298,7 +301,7 @@ pub mod rc_function_var_context {
                             Err("Expected an string atom".to_string())
                         }
                     } else {
-                        Err("Expected an atom".to_string())
+                        Err(format!("Expected an atom, got {:?}", head))
                     }
                 }
                 _ => Err("Expected a list".to_string())

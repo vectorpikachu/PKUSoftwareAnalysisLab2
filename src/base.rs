@@ -2,14 +2,16 @@ pub mod function {
     use std::collections::HashMap;
 
     use either::Either;
-
+    
+    #[derive(Debug)]
     pub enum GetValueError {
-        VarNotDefined(String),
-        VarNotAssigned(String)
+        VarNotDefinedWhenGet(String),
+        VarNotAssignedWhenGet(String)
     }
+    #[derive(Debug)]
     pub enum ExecError {
-        VarNotDefined(String),
-        VarNotAssigned(String),
+        VarNotDefinedWhenExec(String),
+        VarNotAssignedWhenExec(String),
         TypeMismatch(String)
     }
     /// 无上下文，可按位置执行的函数
@@ -172,6 +174,7 @@ pub mod scope {
             f.execute(|var| self.get_value(var))
         }
     }
+    #[derive(Debug)]
     pub struct ScopeImpl<Identifier, Types, Values, FunctionVar: PositionedExecutable<Identifier, Values, Values>> {
         pub all_vars: HashMap<Identifier, Types>,
         pub non_function_vars: HashMap<Identifier, Values>,
@@ -212,7 +215,7 @@ pub mod scope {
             } else {
                 match self.parent_scope {
                     Some(ref parent) => parent.get_value(var),
-                    None => Err(GetValueError::VarNotDefined(format!("{:?}", var)))
+                    None => Err(GetValueError::VarNotDefinedWhenGet(format!("{:?}", var)))
                 }
             }
         }
@@ -253,7 +256,7 @@ pub mod scope {
 }
 
 pub mod language {
-    use std::{collections::HashMap, fmt::Debug, hash::Hash, marker::PhantomData, task::Context};
+    use std::{cell::OnceCell, collections::HashMap, fmt::{format, Debug}, hash::Hash, marker::PhantomData, rc::Rc, sync::Arc, task::Context};
 
     use either::Either;
 
@@ -300,8 +303,8 @@ pub mod language {
                             match args_map(var.clone()) {
                                 Ok(Either::Left(x)) => Ok(x),
                                 Ok(Either::Right(f)) => f.execute(vec![]),
-                                Err(GetValueError::VarNotAssigned(s)) => Err(ExecError::VarNotAssigned(s)),
-                                Err(GetValueError::VarNotDefined(s)) => Err(ExecError::VarNotDefined(s))
+                                Err(GetValueError::VarNotAssignedWhenGet(s)) => Err(ExecError::VarNotAssignedWhenExec(format!("{:?}, when exec Exp::value", s))),
+                                Err(GetValueError::VarNotDefinedWhenGet(s)) => Err(ExecError::VarNotDefinedWhenExec(format!("{:?}, when exec Exp::value", s)))
                         }
                         },
                         Terms::PrimValue(value) => Ok(*value)
@@ -311,8 +314,8 @@ pub mod language {
                     let f = match args_map(f.clone()) {
                         Ok(Either::Left(x)) => return Err(ExecError::TypeMismatch(format!("{:?}", x))),
                         Ok(Either::Right(f)) => f,
-                        Err(GetValueError::VarNotAssigned(s)) => return Err(ExecError::VarNotAssigned(s)),
-                        Err(GetValueError::VarNotDefined(s)) => return Err(ExecError::VarNotDefined(s))
+                        Err(GetValueError::VarNotAssignedWhenGet(s)) => return Err(ExecError::VarNotAssignedWhenExec(format!("{:?}, when exec Exp::Apply({:?}, {:?})", s, f, args))),
+                        Err(GetValueError::VarNotDefinedWhenGet(s)) => return Err(ExecError::VarNotDefinedWhenExec(format!("{:?}, when exec Exp::Apply({:?}, {:?})", s, f, args)))
                     };
                     let args = args.iter().map(|x| x.execute(args_map)).collect::<Result<Vec<_>, _>>()?;
                     f.execute(args)
@@ -322,7 +325,6 @@ pub mod language {
     }
     #[derive(Debug)]
     pub struct DefineFun<
-        'a,
         Identifier: VarIndex + Clone, 
         PrimValues: Copy, Types, 
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues>,
@@ -331,7 +333,7 @@ pub mod language {
         pub name: String,
         pub var_index: Identifier,
         pub args: Vec<(Identifier, Types)>,
-        pub context: Option<&'a Context>,
+        pub context: OnceCell<Arc<Context>>,
         pub return_type: Types,
         pub body: Exp<Identifier, PrimValues>,
         pub _phantom: PhantomData<FunctionVar>
@@ -346,7 +348,7 @@ pub mod language {
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>
     > 
         PositionedExecutable<Identifier, PrimValues, PrimValues> 
-            for DefineFun<'a, Identifier, PrimValues, Types, FunctionVar, Context> {
+            for DefineFun<Identifier, PrimValues, Types, FunctionVar, Context> {
         /// 注意我们的执行规则是，优先查找本地的参数变量，再在上下文中查找
         fn execute (
             &self, 
@@ -357,10 +359,10 @@ pub mod language {
                 if let Some(value) = vars_dict.get(&var) {
                     Ok(Either::<PrimValues, FunctionVar>::Left(*value))    // 用 EmptyFunctionVar，表示这里不会返回函数变量
                 } else {
-                    if let Some(ctx) = self.context {
+                    if let Some(ref ctx) = self.context.get() {
                         ctx.get_value(var.clone())
                     } else {
-                        Err(GetValueError::VarNotDefined(format!("{:?}", var)))
+                        Err(GetValueError::VarNotDefinedWhenGet(format!("{:?}", var)))
                     }
                 }
             });
