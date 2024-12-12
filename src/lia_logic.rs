@@ -70,7 +70,7 @@ pub mod lia {
         Ok(())
     }
     impl <Var> PositionedExecutable<Var, Values, Values> for BuiltIn {
-        fn execute(&self, args: Vec<Values>) -> Result<Values, ExecError> {
+        fn execute(&self, args: &Vec<Values>) -> Result<Values, ExecError> {
             let res = match self {
                 BuiltIn::Add => {
                     arg_num_check(&args, 2, "Add")?;
@@ -139,9 +139,9 @@ pub mod lia {
         match input {
             sexp::Sexp::List(v) => {
                 let final_ctx = test_run(&v);
-                final_ctx.get_value("+".to_string()).unwrap().expect_right("error");
-                let f = final_ctx.get_value("add".to_string()).unwrap().expect_right("error");
-                let res = f.execute(vec![Values::Int(1), Values::Int(2)]).unwrap();
+                final_ctx.get_value(&"+".to_string()).unwrap().expect_right("error");
+                let f = final_ctx.get_value(&"add".to_string()).unwrap().expect_right("error");
+                let res = f.execute(&vec![Values::Int(1), Values::Int(2)]).unwrap();
                 assert_eq!(res, Values::Int(4));
             },
             _ => panic!("Expected a list")
