@@ -53,9 +53,6 @@ pub mod lia {
         Sub,
         Eq,
     }
-    struct BuiltInFun {
-        tag: BuiltIn,
-    }
     fn omit_error_unless_debug<V, E>(v: Result<V, E>) -> Result<V, E> {
         if cfg!(debug_assertions) {
             v
@@ -72,9 +69,9 @@ pub mod lia {
         }
         Ok(())
     }
-    impl <Var> PositionedExecutable<Var, Values, Values> for BuiltInFun {
+    impl <Var> PositionedExecutable<Var, Values, Values> for BuiltIn {
         fn execute(&self, args: Vec<Values>) -> Result<Values, ExecError> {
-            let res = match self.tag {
+            let res = match self {
                 BuiltIn::Add => {
                     arg_num_check(&args, 2, "Add")?;
                     match (args[0], args[1]) {
@@ -103,13 +100,10 @@ pub mod lia {
     use parser::rc_function_var_context::Context;
     fn get_empty_context_with_builtin<'a>() -> Context<'a, String, Values, Types> {
         let mut context = parser::rc_function_var_context::Context::<String, Values, Types>::new(None);
-        context.add_and_set_function_var("+".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltInFun{tag: BuiltIn::Add})));
-        context.add_and_set_function_var("-".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltInFun{tag: BuiltIn::Sub})));
-        context.add_and_set_function_var("=".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltInFun{tag: BuiltIn::Eq})));
+        context.add_and_set_function_var("+".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::Add)));
+        context.add_and_set_function_var("-".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::Sub)));
+        context.add_and_set_function_var("=".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::Eq)));
         context
-    }
-    fn test_fun(ctx: &mut Context<String, Values, Types>, input: &str) -> () {
-        ()
     }
     fn test_run(input: &Vec<sexp::Sexp>) -> Arc<Context<String, Values, Types>> {
         let mut context = get_empty_context_with_builtin();
