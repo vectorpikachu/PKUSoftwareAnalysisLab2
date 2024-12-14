@@ -127,7 +127,7 @@ pub mod parser{
     //     }
     // }
 
-    fn parse_exp<Identifier: Sized + AtomParser + Clone, Values: Sized + AtomParser + Copy>(
+    fn parse_exp<Identifier: Sized + AtomParser + Clone + Eq, Values: Sized + AtomParser + Copy + Eq>(
         input: &sexp::Sexp
     ) -> Result<Exp<Identifier, Values>, String> {
         match input {
@@ -163,8 +163,8 @@ pub mod parser{
     /// （比如如果按顺序 parse，那么 declare-fun 的结果将是顺序无关的，按照当前的语义我们可以写出互递归的函数）
     impl<
         'a,
-        Identifier: Sized + AtomParser + VarIndex,
-        Values: Sized + AtomParser + Copy,
+        Identifier: Sized + AtomParser + VarIndex + Eq,
+        Values: Sized + AtomParser + Copy + Eq,
         FunctionVar: PositionedExecutable<Identifier, Values, Values>,
         Types: ContextFreeSexpParser + Type + Copy,
         Context: Scope<Identifier, Types, Values, FunctionVar>
@@ -201,7 +201,6 @@ pub mod parser{
             let body = parse_exp(&inputs[4])?;
             Ok(
                 DefineFun {
-                    name: id.to_name(),
                     var_index: id,
                     args,
                     context: OnceCell::new(),
@@ -226,7 +225,7 @@ pub mod rc_function_var_context {
     impl <'a, Identifier: Clone, PrimValues: Copy> PositionedExecutable<Identifier, PrimValues, PrimValues> for RcFunctionVar<'a, Identifier, PrimValues> {
         fn execute (
             &self, 
-            args: Vec<PrimValues>
+            args: &Vec<PrimValues>
         ) -> Result<PrimValues, ExecError> {
             self.0.execute(args)
         }
@@ -240,7 +239,7 @@ pub mod rc_function_var_context {
     pub enum Command<
         'a,
         Identifier: VarIndex + Clone + Eq + Hash + Debug,
-        PrimValues: Copy,
+        PrimValues: Copy + Eq,
         Types: Copy
     > {
         SetLogic(LogicTag),
@@ -260,7 +259,7 @@ pub mod rc_function_var_context {
     
     for Command<'a, Identifier, Values, Types>
     where Identifier: AtomParser + VarIndex + Eq + Clone + Hash + Debug + 'static,  // 不想再和生命周期斗争了
-          Values: AtomParser + Copy + Debug + 'static,
+          Values: AtomParser + Copy + Debug + Eq + 'static,
           Types: ContextFreeSexpParser + Copy + Type + 'static
     {
         fn head() -> sexp::Atom {

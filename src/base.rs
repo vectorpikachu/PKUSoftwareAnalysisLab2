@@ -19,7 +19,7 @@ pub mod function {
         /// 如果有参数未赋值，返回 None
         fn execute (
             &self, 
-            args: Vec<Terms>,
+            args: &Vec<Terms>,
         ) -> Result<ReturnType, ExecError>;
     }
     /// 可以按照参数名调用的函数
@@ -30,7 +30,7 @@ pub mod function {
         ReturnType> {
         /// 如果有参数未赋值，返回 None
         /// 注意这里的 PositionedExecutable 是代表变量既可能是值，也可能是函数变量
-        fn execute<F: Fn(Identifier) -> Result<Either<Values, FunctionVar>, GetValueError> + Copy> (
+        fn execute<F: Fn(&Identifier) -> Result<Either<Values, FunctionVar>, GetValueError> + Copy> (
             &self, 
             args_map: F
         ) -> Result<ReturnType, ExecError>;
@@ -147,10 +147,10 @@ pub mod scope {
         fn get_all_vars(&self) -> impl Iterator<Item = (Identifier, Types)>;
 
         /// 获取当前作用域内的变量类型，None 表示无这个变量。只能获取非函数变量
-        fn get_type(&self, var: Identifier) -> Option<Types>;
+        fn get_type(&self, var: &Identifier) -> Option<Types>;
 
         /// 获取当前作用域内的变量值，优先返回本层的，如果本层没有则返回上层的
-        fn get_value(&self, var: Identifier) -> Result<Either<Values, FunctionVar>, GetValueError>;
+        fn get_value(&self, var: &Identifier) -> Result<Either<Values, FunctionVar>, GetValueError>;
 
         /// 设置当前作用域内的变量值，返回是否设置成功。只能设置本层的非函数变量
         fn set_value(&mut self, var: Identifier, value: Values) -> Option<()>;
@@ -204,10 +204,10 @@ pub mod scope {
         fn get_all_vars(&self) -> impl Iterator<Item = (Identifier, Types)> {
             self.all_vars.iter().map(|(k, v)| (k.clone(), *v))
         }
-        fn get_type(&self, var: Identifier) -> Option<Types> {
-            self.all_vars.get(&var).copied()
+        fn get_type(&self, var: &Identifier) -> Option<Types> {
+            self.all_vars.get(var).copied()
         }
-        fn get_value(&self, var: Identifier) -> Result<Either<Values, FunctionVar>, GetValueError> {
+        fn get_value(&self, var: &Identifier) -> Result<Either<Values, FunctionVar>, GetValueError> {
             if let Some(value) = self.non_function_vars.get(&var) {
                 Ok(Either::Left(*value))
             } else if let Some(value) = self.function_vars.get(&var) {
@@ -256,7 +256,7 @@ pub mod scope {
 }
 
 pub mod language {
-    use std::{cell::OnceCell, collections::HashMap, fmt::{format, Debug}, hash::Hash, marker::PhantomData, rc::Rc, sync::Arc, task::Context};
+    use std::{borrow::Borrow, cell::OnceCell, collections::{HashMap, HashSet}, fmt::{format, Debug}, hash::Hash, marker::PhantomData, rc::Rc, sync::Arc, task::Context};
 
     use either::Either;
 
@@ -269,16 +269,16 @@ pub mod language {
         fn from_function(args: Vec<Self>, return_type: Self) -> Self;
     }
 
-    #[derive(Debug, Clone)]
-    pub enum Terms<Var: Clone, PrimValues: Copy> {
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub enum Terms<Var: Clone + Eq, PrimValues: Copy + Eq> {
         Var(Var),
         PrimValue(PrimValues),
     }
 
 
     // 由于本次作业似乎不需要，因此这里 Exp 就不带类型了
-    #[derive(Debug)]
-    pub enum Exp<Identifier: Clone, PrimValues: Copy> {
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub enum Exp<Identifier: Clone + Eq, PrimValues: Copy + Eq> {
         Value(Terms<Identifier, PrimValues>),
         Apply(Identifier, Vec<Exp<Identifier, PrimValues>>),   // 注意我们使用的语言中，函数应用中的函数只能是 Identifier
     } 
@@ -286,13 +286,13 @@ pub mod language {
 
 
     impl <
-        Identifier: VarIndex + Clone + Debug, 
-        PrimValues: Copy + Debug,
+        Identifier: VarIndex + Clone + Debug + Eq, 
+        PrimValues: Copy + Debug + Eq,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         > 
     NamedExecutable<Identifier, PrimValues, FunctionVar, PrimValues> for Exp<Identifier, PrimValues> {
         /// 注意我们允许零个参数的 FunctionVar
-        fn execute<F: Fn(Identifier) -> Result<Either<PrimValues, FunctionVar>, GetValueError> + Copy> (
+        fn execute<F: Fn(&Identifier) -> Result<Either<PrimValues, FunctionVar>, GetValueError> + Copy> (
             &self, 
             args_map: F
         ) -> Result<PrimValues, ExecError> {
@@ -300,9 +300,9 @@ pub mod language {
                 Exp::Value(value) => {
                     match value {
                         Terms::Var(var) => {
-                            match args_map(var.clone()) {
+                            match args_map(var) {
                                 Ok(Either::Left(x)) => Ok(x),
-                                Ok(Either::Right(f)) => f.execute(vec![]),
+                                Ok(Either::Right(f)) => f.execute(&vec![]),
                                 Err(GetValueError::VarNotAssignedWhenGet(s)) => Err(ExecError::VarNotAssignedWhenExec(format!("{:?}, when exec Exp::value", s))),
                                 Err(GetValueError::VarNotDefinedWhenGet(s)) => Err(ExecError::VarNotDefinedWhenExec(format!("{:?}, when exec Exp::value", s)))
                         }
@@ -311,26 +311,187 @@ pub mod language {
                     }
                 },
                 Exp::Apply(f, args) => {
-                    let f = match args_map(f.clone()) {
+                    let f = match args_map(f) {
                         Ok(Either::Left(x)) => return Err(ExecError::TypeMismatch(format!("{:?}", x))),
                         Ok(Either::Right(f)) => f,
                         Err(GetValueError::VarNotAssignedWhenGet(s)) => return Err(ExecError::VarNotAssignedWhenExec(format!("{:?}, when exec Exp::Apply({:?}, {:?})", s, f, args))),
                         Err(GetValueError::VarNotDefinedWhenGet(s)) => return Err(ExecError::VarNotDefinedWhenExec(format!("{:?}, when exec Exp::Apply({:?}, {:?})", s, f, args)))
                     };
                     let args = args.iter().map(|x| x.execute(args_map)).collect::<Result<Vec<_>, _>>()?;
-                    f.execute(args)
+                    f.execute(&args)
                 }
             }
         }
     }
-    #[derive(Debug)]
-    pub struct DefineFun<
-        Identifier: VarIndex + Clone, 
-        PrimValues: Copy, Types, 
+
+    /// 注意我们不考虑函数变量的情况
+    // fn count_vars_occurrence<
+    //     Identifier: Clone + Eq + Hash,
+    //     PrimValues: Copy + Eq,
+    //     F: Fn(&Identifier) -> bool + Clone
+    //     > 
+    //     (
+    //         exp: &Exp<Identifier, PrimValues>, 
+    //         contains: F
+    //     ) 
+    //     -> HashMap<Identifier, usize> {
+    //     match exp {
+    //         Exp::Value(Terms::Var(var)) => {
+    //             if contains(var) {
+    //                 let mut map = HashMap::new();
+    //                 map.insert(var.clone(), 1);
+    //                 map
+    //             } else {
+    //                 HashMap::new()
+    //             }
+    //         },
+    //         Exp::Value(Terms::PrimValue(_)) => HashMap::new(),
+    //         Exp::Apply(_, args) => {
+    //             args.iter().map(|x| count_vars_occurrence(x, contains.clone())).fold(HashMap::new(), |mut acc, x| {
+    //                 for (k, v) in x {
+    //                     *acc.entry(k).or_insert(0) += v;
+    //                 }
+    //                 acc
+    //             })
+    //         }
+    //     }
+    // }
+
+    fn count_vars_occurrence<
+        'a,
+        Identifier: Clone + Eq + Hash,
+        PrimValues: Copy + Eq,
+        F: Fn(&Identifier) -> bool + Clone
+        > 
+        (
+            exp: &'a mut Exp<Identifier, PrimValues>, 
+            contains: F
+        ) 
+        -> HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValues>>> {
+        match exp {
+            Exp::Value(Terms::Var(var)) => {
+                if contains(var) {
+                    let mut map = HashMap::new();
+                    map.entry(var.clone()).or_insert(vec![]).push(exp);
+                    return map
+                } else {
+                    HashMap::new()
+                }
+            },
+            Exp::Value(Terms::PrimValue(_)) => HashMap::new(),
+            Exp::Apply(_, args) => {
+                args.into_iter().map(|x| count_vars_occurrence(x, contains.clone())).fold(HashMap::new(), |mut acc, x| {
+                    for (k, mut v) in x {
+                        acc.entry(k).or_insert(vec![]).append(&mut v);
+                    }
+                    acc
+                })
+            }
+        }
+    }
+
+    /// 在给定表达式中，将某个变量的一次出现替换为另一个表达式，返回替换后的表达式
+    fn subst_once<Identifier: Clone + Eq, PrimValues: Copy + Eq> (exp: Exp<Identifier, PrimValues>, var: &Identifier, replacement: &Exp<Identifier, PrimValues>) -> Exp<Identifier, PrimValues> {
+        match exp {
+            Exp::Value(Terms::Var(v)) => {
+                if v == *var {
+                    (*replacement).clone()
+                } else {
+                    Exp::Value(Terms::Var(v))
+                }
+            },
+            Exp::Value(Terms::PrimValue(_)) => exp,
+            Exp::Apply(f, args) => {
+                Exp::Apply(f.clone(), args.into_iter().map(|x| subst_once(x, var, replacement)).collect())
+            }
+        }
+    }
+
+    /// 最基础的 PositionedExecutable 函数，充当临时变量使用
+    pub struct BasicFun<
+        'a,
+        Identifier: VarIndex + Clone + Eq, 
+        PrimValues: Copy + Eq, 
+        Types, 
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues>,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>
     > {
-        pub name: String,
+        pub args: &'a Vec<(Identifier, Types)>,
+        pub context: Option<&'a Context>,
+        pub body: &'a Exp<Identifier, PrimValues>,
+        _phantom: PhantomData<FunctionVar>
+    }
+
+    impl <
+        'a,
+        Identifier: VarIndex + Clone + Eq + Hash + Debug, 
+        PrimValues: Copy + Debug + Eq, 
+        Types,
+        FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
+        Context: Scope<Identifier, Types, PrimValues, FunctionVar>
+    > BasicFun<'a, Identifier, PrimValues, Types, FunctionVar, Context> {
+        pub fn new(
+            args: &'a Vec<(Identifier, Types)>,
+            context: Option<&'a Context>,
+            body: &'a Exp<Identifier, PrimValues>
+        ) -> Self {
+            BasicFun {
+                args,
+                context,
+                body,
+                _phantom: PhantomData
+            }
+        }
+    }
+
+    impl <
+        'a,
+        Identifier: VarIndex + Clone + Eq + Hash + Debug, 
+        PrimValues: Copy + Debug + Eq, 
+        Types,
+        FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
+        Context: Scope<Identifier, Types, PrimValues, FunctionVar>
+    > PositionedExecutable<Identifier, PrimValues, PrimValues> for BasicFun<'a, Identifier, PrimValues, Types, FunctionVar, Context> {
+        /// 注意我们的执行规则是，优先查找本地的参数变量，再在上下文中查找
+        fn execute (
+            &self, 
+            args: &Vec<PrimValues>
+        ) -> Result<PrimValues, ExecError> {
+            let vars_dict: HashMap<Identifier, PrimValues> = self.args.iter().map(|(var, _)| var.clone()).zip(args).map(|(k, v)| (k, *v)).collect();
+            let f = self.body.execute(|var| {
+                if let Some(value) = vars_dict.get(&var) {
+                    Ok(Either::<PrimValues, FunctionVar>::Left(*value))    // 用 EmptyFunctionVar，表示这里不会返回函数变量
+                } else {
+                    match self.context {
+                        None => Err(GetValueError::VarNotDefinedWhenGet(format!("{:?}", var))),
+                        Some(ctx) => ctx.get_value(var)
+                    }
+                }
+            });
+            f
+        }
+    }
+
+    /// 用来声明一个 FunctionVar 可以由一个 BasicFun 生成
+    pub trait FromBasicFun<
+        Identifier: VarIndex + Clone + Eq + Hash + Debug, 
+        PrimValues: Copy + Debug + Eq, 
+        Types,
+        Context: Scope<Identifier, Types, PrimValues, Self>
+    > 
+    where Self: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone
+    {
+        fn from_basic_fun<'a>(basic_fun: BasicFun<'a, Identifier, PrimValues, Types, Self, Context>) -> Self;
+    }
+
+    #[derive(Debug)]
+    pub struct DefineFun<
+        Identifier: VarIndex + Clone + Eq, 
+        PrimValues: Copy + Eq, 
+        Types, 
+        FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues>,
+        Context: Scope<Identifier, Types, PrimValues, FunctionVar>
+    > {
         pub var_index: Identifier,
         pub args: Vec<(Identifier, Types)>,
         pub context: OnceCell<Arc<Context>>,
@@ -340,9 +501,24 @@ pub mod language {
     }
 
     impl <
+        Identifier: VarIndex + Clone + Eq + Hash + Debug, 
+        PrimValues: Copy + Debug + Eq, 
+        Types,
+        FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
+        Context: Scope<Identifier, Types, PrimValues, FunctionVar>
+    > DefineFun<Identifier, PrimValues, Types, FunctionVar, Context> {
+        pub fn get_name(&self) -> String {
+            self.var_index.to_name()
+        }
+        pub fn to_basic_fun(&self) -> BasicFun<Identifier, PrimValues, Types, FunctionVar, Context> {
+            BasicFun::new(&self.args, self.context.get().map(|x| x.borrow()), &self.body)
+        }
+    }
+
+    impl <
         'a,
         Identifier: VarIndex + Clone + Eq + Hash + Debug, 
-        PrimValues: Copy + Debug, 
+        PrimValues: Copy + Debug + Eq, 
         Types,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>
@@ -352,23 +528,208 @@ pub mod language {
         /// 注意我们的执行规则是，优先查找本地的参数变量，再在上下文中查找
         fn execute (
             &self, 
-            args: Vec<PrimValues>
+            args: &Vec<PrimValues>
         ) -> Result<PrimValues, ExecError> {
-            let vars_dict: HashMap<Identifier, PrimValues> = self.args.iter().map(|(var, _)| var.clone()).zip(args).collect();
-            let f = self.body.execute(|var| {
-                if let Some(value) = vars_dict.get(&var) {
-                    Ok(Either::<PrimValues, FunctionVar>::Left(*value))    // 用 EmptyFunctionVar，表示这里不会返回函数变量
-                } else {
-                    if let Some(ref ctx) = self.context.get() {
-                        ctx.get_value(var.clone())
-                    } else {
-                        Err(GetValueError::VarNotDefinedWhenGet(format!("{:?}", var)))
-                    }
-                }
-            });
-            f
+            // let vars_dict: HashMap<Identifier, PrimValues> = self.args.iter().map(|(var, _)| var.clone()).zip(args).collect();
+            // let f = self.body.execute(|var| {
+            //     if let Some(value) = vars_dict.get(&var) {
+            //         Ok(Either::<PrimValues, FunctionVar>::Left(*value))    // 用 EmptyFunctionVar，表示这里不会返回函数变量
+            //     } else {
+            //         if let Some(ref ctx) = self.context.get() {
+            //             ctx.get_value(var)
+            //         } else {
+            //             Err(GetValueError::VarNotDefinedWhenGet(format!("{:?}", var)))
+            //         }
+            //     }
+            // });
+            // f
+            self.to_basic_fun().execute(args)
         }
+    }
+
+    /// 一条上下文无关文法中的生成规则
+    struct Rule<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq> {
+        body: Exp<Identifier, PrimValue>,
+        /// 统计每个在右侧出现非终结符的数量，方便枚举
+        // counts_of_non_terminal: HashMap<Identifier, usize>,
+        /// 将非终结符的每次出现统计成可变引用，需要时直接替换。完成后，可以调用 reset 方法恢复初始状态 
+        counts_of_non_terminal: OnceCell<HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>>>, 
     } 
-    use crate::base::logic::LogicTag;
- 
+    impl <'a, Identifier: Clone + Hash + Eq + Debug, PrimValue: Copy + Eq> Rule<'a, Identifier, PrimValue> {
+        pub fn new(body: Exp<Identifier, PrimValue>) -> Self {
+            Rule {
+                body,
+                counts_of_non_terminal: OnceCell::new()
+            }
+        }
+        /// 自动统计右侧非终结符的数量
+        pub fn counts_init<
+            F : Fn(&Identifier) -> bool + Clone
+        >
+        (&'a mut self, contains: F)  {
+            let counts = count_vars_occurrence(&mut self.body, contains);
+            self.counts_of_non_terminal.set(counts);
+        }
+        /// 假设已经初始化好了 counts_of_non_terminal，可以直接获取
+        pub fn get_counts(&self) -> &HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>> {
+            self.counts_of_non_terminal.get().unwrap()
+        }
+        pub fn is_terminal(&self) -> bool {
+            self.get_counts().is_empty()
+        }
+
+        /// 在 Debug 模式下，会自动检查变量是不是在右边出现的非终结符
+        pub fn subst_non_terminal_once(&self, exp: Exp<Identifier, PrimValue>, var: &Identifier, replacement: &Exp<Identifier, PrimValue>) -> Exp<Identifier, PrimValue> {
+            if cfg!(debug_assertions) {
+                if self.get_counts().get(var).is_none() {
+                    let error: String = format!("Trying to substitute a non-terminal variable: {:?}, all non-terminals: {:?}", var, self.get_counts().keys());
+                    panic!("{}", error);
+                }
+            }
+            subst_once(exp, var, replacement)
+        }
+
+        pub fn get_non_terminal_vars(&self) -> impl Iterator<Item = &Identifier> {
+            self.get_counts().keys()
+        }
+
+        pub fn get_non_terminal_vars_and_counts(&self) -> impl Iterator<Item = (&Identifier, &Vec<&'a mut Exp<Identifier, PrimValue>>)> {
+            self.get_counts().iter()
+        }
+
+        pub fn get_mut_non_terminal_vars_and_counts(&mut self) -> impl Iterator<Item = (&Identifier, &mut Vec<&'a mut Exp<Identifier, PrimValue>>)> {
+            self.counts_of_non_terminal.get_mut().unwrap().iter_mut()
+        }
+
+        pub fn get_body(&self) -> &Exp<Identifier, PrimValue> {
+            &self.body
+        }
+
+        pub fn reset_body(&mut self) {
+            for (var, exp_ref) in self.counts_of_non_terminal.get_mut().unwrap() {
+                for exp in exp_ref {
+                    **exp = Exp::Value(Terms::Var(var.clone()));
+                }
+            }
+        }
+    }
+
+
+    struct SynthFun<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq, Types> {
+        /// 函数名
+        name: Identifier,
+        /// 参数列表
+        args: Vec<(Identifier, Types)>,
+        /// 返回值类型
+        return_type: Types,
+        /// 每个非终结符对应的生成规则
+        rules: HashMap<Identifier, Vec<Rule<'a, Identifier, PrimValue>>>,
+        /// 每个非终结符对应的类型
+        types_of_non_terminal: HashMap<Identifier, Types>,
+    }
+
+    impl <'a, Identifier: Clone + Eq + Hash, PrimValue: Copy + Eq, Types> SynthFun<'a, Identifier, PrimValue, Types> {
+        pub fn new(
+            name: Identifier,
+            args: Vec<(Identifier, Types)>,
+            return_type: Types,
+            rules: HashMap<Identifier, Vec<Rule<'a, Identifier, PrimValue>>>,
+            types_of_non_terminal: HashMap<Identifier, Types>,
+        ) -> Self {
+            SynthFun {
+                name,
+                args,
+                return_type,
+                rules,
+                types_of_non_terminal,
+            }
+        }
+        pub fn get_name(&self) -> &Identifier {
+            &self.name
+        }
+        pub fn get_args(&self) -> &Vec<(Identifier, Types)> {
+            &self.args
+        }
+        pub fn get_return_type(&self) -> &Types {
+            &self.return_type
+        }
+        pub fn get_rules(&self, non_terminal: &Identifier) -> Option<&Vec<Rule<'a, Identifier, PrimValue>>> {
+            self.rules.get(non_terminal)
+        }
+        pub fn get_type(&self, non_terminal: &Identifier) -> Option<&Types> {
+            self.types_of_non_terminal.get(non_terminal)
+        }
+    }
+    impl <
+        'a, 
+        Identifier: Clone + Eq + Hash + VarIndex + Debug, 
+        PrimValue: Copy + Eq + Debug, 
+        Types,
+    > SynthFun<'a, Identifier, PrimValue, Types> {
+        /// 将指定的 exp 视作当前 SynthFun 的 body 并返回一个（临时的） BasicFun
+        pub fn exp_to_basic_fun<
+            'b,
+            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone,
+            Context: Scope<Identifier, Types, PrimValue, FunctionVar>
+        >(
+            &'b self,
+            context: Option<&'b Context>,
+            exp: &'b Exp<Identifier, PrimValue>
+        ) -> BasicFun<'b, Identifier, PrimValue, Types, FunctionVar, Context> {
+            BasicFun::new(&self.args, context, exp)
+        }
+
+        /// 将指定的 exp 视作当前 SynthFun 的 body 并在给定的信息下执行
+        pub fn execute_exp_in_context<
+            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone,
+            Context: Scope<Identifier, Types, PrimValue, FunctionVar>
+        >(
+            &self,
+            args: &Vec<PrimValue>,
+            context: Option<&Context>,
+            exp: &Exp<Identifier, PrimValue>
+        ) -> Result<PrimValue, ExecError>
+        {
+            let temp_fun = self.exp_to_basic_fun(context, exp);
+            temp_fun.execute(&args)
+        }
+    }
+
+    struct Constraint<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
+        body: Exp<Identifier, PrimValue>,
+    }
+    impl <Identifier: Clone + Eq, PrimValue: Copy + Eq> Constraint<Identifier, PrimValue> {
+        pub fn new(body: Exp<Identifier, PrimValue>) -> Self {
+            Constraint {
+                body
+            }
+        }
+        pub fn get_body(&self) -> &Exp<Identifier, PrimValue> {
+            &self.body
+        }
+    }
+    impl <Identifier: Clone + Eq + Debug + VarIndex + Hash, PrimValue: Copy + Eq + Debug> Constraint<Identifier, PrimValue> {
+        /// 用一个 exp 替代 SynthFun 的对象并在给定的上下文中执行，其实实现有一点低效，没必要让 FunctionVar 建立一个新的 Rc，但是为了简化代码，这里就这样写了
+        pub fn instantiate_and_execute<
+            Types,   
+            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<Identifier, PrimValue, Types, Context>,
+            Context: Scope<Identifier, Types, PrimValue, FunctionVar>,
+        >(
+            fun_to_synth: &SynthFun<Identifier, PrimValue, Types>,
+            context: Option<&Context>,
+            exp: &Exp<Identifier, PrimValue>,
+            args_map: impl Fn(&Identifier) -> Result<Either<PrimValue, FunctionVar>, GetValueError> + Copy,
+        ){
+            let new_args_map = |var: &Identifier| {
+                if var == var {
+                    let temp_func = fun_to_synth.exp_to_basic_fun(context, exp);
+                    Ok(Either::Right(FunctionVar::from_basic_fun(temp_func)))
+                } else {
+                    args_map(var)
+                }
+            };
+            exp.execute(new_args_map);
+        }
+    }
+
 }
