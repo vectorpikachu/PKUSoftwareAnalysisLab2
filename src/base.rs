@@ -719,7 +719,8 @@ pub mod language {
             context: Option<&Context>,
             exp: &Exp<Identifier, PrimValue>,
             args_map: impl Fn(&Identifier) -> Result<Either<PrimValue, FunctionVar>, GetValueError> + Copy,
-        ){
+        ) -> Result<PrimValue, ExecError>
+        {
             let new_args_map = |var: &Identifier| {
                 if var == var {
                     let temp_func = fun_to_synth.exp_to_basic_fun(context, exp);
@@ -728,7 +729,7 @@ pub mod language {
                     args_map(var)
                 }
             };
-            exp.execute(new_args_map);
+            exp.execute(new_args_map)
         }
     }
 
