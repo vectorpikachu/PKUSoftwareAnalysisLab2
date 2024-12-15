@@ -577,7 +577,7 @@ pub mod language {
         /// 将非终结符的每次出现统计成可变引用，需要时直接替换。完成后，可以调用 reset 方法恢复初始状态 
         counts_of_non_terminal: OnceCell<HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>>>, 
     } 
-    impl <'a, Identifier: Clone + Hash + Eq + Debug, PrimValue: Copy + Eq> Rule<'a, Identifier, PrimValue> {
+    impl <'a, Identifier: Clone + Hash + Eq + Debug, PrimValue: Copy + Eq + Debug> Rule<'a, Identifier, PrimValue> {
         pub fn new(body: Exp<Identifier, PrimValue>) -> Self {
             Rule {
                 body,
@@ -590,7 +590,7 @@ pub mod language {
         >
         (&'a mut self, contains: F)  {
             let counts = count_vars_occurrence(&mut self.body, contains);
-            self.counts_of_non_terminal.set(counts);
+            self.counts_of_non_terminal.set(counts).unwrap();
         }
         /// 假设已经初始化好了 counts_of_non_terminal，可以直接获取
         pub fn get_counts(&self) -> &HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>> {
@@ -636,7 +636,7 @@ pub mod language {
         }
     }
 
-
+    /// 注意由于 Rule 中 count 的设计，SynthFun 一旦 init_counts 后就无法移动了，需要谨慎使用
     pub struct SynthFun<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq, Types> {
         /// 函数名
         name: Identifier,
@@ -650,7 +650,7 @@ pub mod language {
         types_of_non_terminal: HashMap<Identifier, Types>,
     }
 
-    impl <'a, Identifier: Clone + Eq + Hash, PrimValue: Copy + Eq, Types> SynthFun<'a, Identifier, PrimValue, Types> {
+    impl <'a, Identifier: Clone + Eq + Hash + Debug, PrimValue: Copy + Eq + Debug, Types> SynthFun<'a, Identifier, PrimValue, Types> {
         pub fn new(
             name: Identifier,
             args: Vec<(Identifier, Types)>,
@@ -664,6 +664,13 @@ pub mod language {
                 return_type,
                 rules,
                 types_of_non_terminal,
+            }
+        }
+        pub fn init_counts(&'a mut self) {
+            for rules in self.rules.values_mut() {
+                for rule in rules {
+                    rule.counts_init(|var| self.types_of_non_terminal.contains_key(var));
+                }
             }
         }
         pub fn get_name(&self) -> &Identifier {

@@ -1,6 +1,6 @@
 pub mod parser{
 
-    use std::{cell::OnceCell, collections::HashMap};
+    use std::{cell::OnceCell, collections::{HashMap, HashSet}};
 
     use crate::base::{function::{PositionedExecutable, VarIndex}, language::{Constraint, DeclareVar, DefineFun, Exp, Rule, SynthFun, Terms, Type}, logic::{parse_logic_tag, LogicTag}, scope::{Scope, ScopeImpl}};
 
@@ -217,7 +217,7 @@ pub mod parser{
         'a,
         Identifier: Debug + AtomParser + VarIndex + Eq + Hash,
         Types: ContextFreeSexpParser + Type + Copy,
-        Values: Sized + AtomParser + Copy + Eq,
+        Values: Sized + AtomParser + Copy + Eq + Debug,
     >(input: &sexp::Sexp) -> Result<(Identifier, Types, Vec<Rule<'a, Identifier, Values>>), String> {
         match input {
             sexp::Sexp::List(list) => {
@@ -248,7 +248,7 @@ pub mod parser{
     impl<
         'a,
         Identifier: Sized + AtomParser + VarIndex + Eq + Hash + Debug,
-        Values: Sized + AtomParser + Copy + Eq,
+        Values: Sized + AtomParser + Copy + Eq + Debug,
         Types: ContextFreeSexpParser + Type + Copy,
     > ContextFreeSexpParser for SynthFun<'a, Identifier, Values, Types> {
         fn parse(input: &sexp::Sexp) -> Result<Self, String> {
@@ -276,15 +276,24 @@ pub mod parser{
             let return_type: Types = ContextFreeSexpParser::parse(&input[3])?;
             let mut id_to_type: HashMap<Identifier, Types> = HashMap::new();
             let mut non_termianal_to_rules: HashMap<Identifier, Vec<Rule<Identifier, Values>>> = HashMap::new();
+            let mut non_terminals: HashSet<Identifier> = HashSet::new();
             if let sexp::Sexp::List(ref body) = input[4] {
                 for non_terminal_rule in body {
                     let (id, ty, rules) = parse_rules::<Identifier, Types, _>(non_terminal_rule)?;
                     id_to_type.insert(id.clone(), ty);
-                    non_termianal_to_rules.insert(id, rules);
+                    non_termianal_to_rules.insert(id.clone(), rules);
+                    non_terminals.insert(id);
                 }
             } else {
                 return Err("Expected a list in the fourth position of synth-fun".to_string());
             }
+            // for (_, rules) in non_termianal_to_rules.iter_mut() {
+            //     for rule in rules {
+            //         rule.counts_init(
+            //             |id| non_terminals.get(id).is_some()
+            //         );
+            //     }
+            // }
             Ok(
                 SynthFun::new(
                     id,
