@@ -547,8 +547,30 @@ pub mod language {
         }
     }
 
+    /// Declare-var
+    pub struct DeclareVar<Identifier, Types> {
+        var_index: Identifier,
+        var_type: Types,
+    }
+
+    impl <Identifier, Types> DeclareVar<Identifier, Types> {
+        pub fn new(var_index: Identifier, var_type: Types) -> Self {
+            DeclareVar {
+                var_index,
+                var_type
+            }
+        }
+        pub fn get_id(&self) -> &Identifier {
+            &self.var_index
+        }
+        pub fn get_type(&self) -> &Types {
+            &self.var_type
+        }
+
+    }
+
     /// 一条上下文无关文法中的生成规则
-    struct Rule<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq> {
+    pub struct Rule<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq> {
         body: Exp<Identifier, PrimValue>,
         /// 统计每个在右侧出现非终结符的数量，方便枚举
         // counts_of_non_terminal: HashMap<Identifier, usize>,
@@ -615,7 +637,7 @@ pub mod language {
     }
 
 
-    struct SynthFun<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq, Types> {
+    pub struct SynthFun<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq, Types> {
         /// 函数名
         name: Identifier,
         /// 参数列表
@@ -695,7 +717,7 @@ pub mod language {
         }
     }
 
-    struct Constraint<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
+    pub struct Constraint<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
         body: Exp<Identifier, PrimValue>,
     }
     impl <Identifier: Clone + Eq, PrimValue: Copy + Eq> Constraint<Identifier, PrimValue> {
