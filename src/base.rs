@@ -259,6 +259,9 @@ pub mod language {
     use std::{borrow::Borrow, cell::OnceCell, collections::{HashMap, HashSet}, fmt::{format, Debug}, hash::Hash, marker::PhantomData, rc::Rc, sync::Arc, task::Context};
 
     use either::Either;
+    use z3::ast::Ast;
+
+    use crate::z3_solver::{GetZ3Decl, GetZ3Expr, GetZ3Type};
 
     use super::{function::{BuiltinFunction, ExecError, ExplicitParameter, GetValueError, NamedExecutable, PositionedExecutable, VarIndex}, scope::{self, Scope}};
 
@@ -283,6 +286,18 @@ pub mod language {
         Apply(Identifier, Vec<Exp<Identifier, PrimValues>>),   // 注意我们使用的语言中，函数应用中的函数只能是 Identifier
     } 
     
+    impl<
+        Identifier: VarIndex + Clone + Eq + Hash + Debug, 
+        PrimValues: Copy + Debug + Eq
+    > GetZ3Expr for Exp<Identifier, PrimValues> {
+        fn get_z3_expr(&self, ctx: &z3::Context, args: &[z3::ast::Dynamic]) -> z3::ast::Dynamic {
+            match self {
+                Exp::Value(Terms::Var(var)) => {
+                    args[var.to_name().parse::<usize>().unwrap()].clone()
+                },
+            }
+        }
+    }
 
 
     impl <
@@ -546,6 +561,26 @@ pub mod language {
             self.to_basic_fun().execute(args)
         }
     }
+
+    impl <
+        Identifier: VarIndex + Clone + Eq + Hash + Debug, 
+        PrimValues: Copy + Debug + Eq, 
+        Types: GetZ3Type,
+        FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
+        Context: Scope<Identifier, Types, PrimValues, FunctionVar>
+    > GetZ3Decl for DefineFun<Identifier, PrimValues, Types, FunctionVar, Context> {
+        fn get_z3_decl(&self, ctx: &z3::Context) -> z3::RecFuncDecl {
+            let mut args_sort = [];
+            let mut args = [];
+            let args_hashmap: HashMap<Identifier, &dyn Ast> = self.args.iter().map(|(var, )| (var.clone(), )).collect();
+            let f = z3::RecFuncDecl::new(ctx, self.get_name(), &args_sort, &self.return_type.get_z3_type());
+            f.add_def(&args, 
+                &self.body.get_z3_expr(ctx, &args_hashmap));
+            f
+        }
+    }
+
+    /// 
 
     /// Declare-var
     pub struct DeclareVar<Identifier, Types> {
