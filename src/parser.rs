@@ -1,8 +1,8 @@
 pub mod parser{
 
-    use std::cell::OnceCell;
+    use std::{cell::OnceCell, collections::{HashMap, HashSet}};
 
-    use crate::base::{function::{PositionedExecutable, VarIndex}, language::{DefineFun, Exp, Terms, Type}, logic::{parse_logic_tag, LogicTag}, scope::{Scope, ScopeImpl}};
+    use crate::base::{function::{PositionedExecutable, VarIndex}, language::{Constraint, DeclareVar, DefineFun, Exp, Rule, SynthFun, Terms, Type}, logic::{parse_logic_tag, LogicTag}, scope::{Scope, ScopeImpl}};
 
     pub trait AtomParser 
     where Self: Sized
@@ -211,6 +211,136 @@ pub mod parser{
             )
         }
     }
+    use std::hash::Hash;
+    use std::fmt::Debug;
+    fn parse_rules<
+        'a,
+        Identifier: Debug + AtomParser + VarIndex + Eq + Hash,
+        Types: ContextFreeSexpParser + Type + Copy,
+        Values: Sized + AtomParser + Copy + Eq + Debug,
+    >(input: &sexp::Sexp) -> Result<(Identifier, Types, Vec<Rule<'a, Identifier, Values>>), String> {
+        match input {
+            sexp::Sexp::List(list) => {
+                if list.len() != 3 {
+                    return Err(format!("Expected a list of length 3, got {:?}", list.len()));
+                }
+                let id = ContextFreeSexpParser::parse(&list[0])?;
+                let ty = ContextFreeSexpParser::parse(&list[1])?;
+                let body = &list[2];
+                if let sexp::Sexp::List(ref body_list) = body {
+                    let mut rules = Vec::new();
+                    for item in body_list {
+                        rules.push(
+                            Rule::new(
+                                parse_exp(item)?
+                            )
+                        )
+                    }
+                    Ok((id, ty, rules))
+                } else {
+                    Err("Expected a list in the third position of a rule".to_string())
+                }
+            }
+            _ => Err("Expected a list".to_string())
+        }
+    }
+
+    impl<
+        'a,
+        Identifier: Sized + AtomParser + VarIndex + Eq + Hash + Debug,
+        Values: Sized + AtomParser + Copy + Eq + Debug,
+        Types: ContextFreeSexpParser + Type + Copy,
+    > ContextFreeSexpParser for SynthFun<'a, Identifier, Values, Types> {
+        fn parse(input: &sexp::Sexp) -> Result<Self, String> {
+            let input = match input {
+                sexp::Sexp::List(inputs) => inputs,
+                _ => return Err(format!("Expected a list in parse synth-fun, got {:?}", input))
+            };
+            if input.len() != 5 {
+                return Err(format!("Expected 5 arguments in parse synth-fun, got {:?}", input.len()));
+            }
+            let id: Identifier = ContextFreeSexpParser::parse(&input[1])?;
+            let args = match &input[2] {
+                sexp::Sexp::List(ref list) => {
+                    let mut paras = Vec::new();
+                    for item in list {
+                        let (arg_name, arg_type) = parse_two_pair(&item);
+                        let arg_name: Identifier = ContextFreeSexpParser::parse(&arg_name)?;
+                        let arg_type: Types = ContextFreeSexpParser::parse(&arg_type)?;
+                        paras.push((arg_name, arg_type));
+                    }
+                    paras
+                }
+                _ => return Err("Expected a list in the third position of synth-fun".to_string())
+            };
+            let return_type: Types = ContextFreeSexpParser::parse(&input[3])?;
+            let mut id_to_type: HashMap<Identifier, Types> = HashMap::new();
+            let mut non_termianal_to_rules: HashMap<Identifier, Vec<Rule<Identifier, Values>>> = HashMap::new();
+            let mut non_terminals: HashSet<Identifier> = HashSet::new();
+            if let sexp::Sexp::List(ref body) = input[4] {
+                for non_terminal_rule in body {
+                    let (id, ty, rules) = parse_rules::<Identifier, Types, _>(non_terminal_rule)?;
+                    id_to_type.insert(id.clone(), ty);
+                    non_termianal_to_rules.insert(id.clone(), rules);
+                    non_terminals.insert(id);
+                }
+            } else {
+                return Err("Expected a list in the fourth position of synth-fun".to_string());
+            }
+            // for (_, rules) in non_termianal_to_rules.iter_mut() {
+            //     for rule in rules {
+            //         rule.counts_init(
+            //             |id| non_terminals.get(id).is_some()
+            //         );
+            //     }
+            // }
+            Ok(
+                SynthFun::new(
+                    id,
+                    args,
+                    return_type,
+                    non_termianal_to_rules,
+                    id_to_type,
+                )
+            )
+        }
+    }
+
+    impl<
+        Identifier: Sized + AtomParser + VarIndex + Eq + Hash + Debug,
+        Types: ContextFreeSexpParser + Type + Copy,
+    > ContextFreeSexpParser for DeclareVar<Identifier, Types> {
+        fn parse(input: &sexp::Sexp) -> Result<Self, String> {
+            let input = match input {
+                sexp::Sexp::List(inputs) => inputs,
+                _ => return Err(format!("Expected a list in parse declare-var, got {:?}", input))
+            };
+            if input.len() != 3 {
+                return Err(format!("Expected 3 arguments in parse declare-var, got {:?}", input.len()));
+            }
+            let id: Identifier = ContextFreeSexpParser::parse(&input[1])?;
+            let ty: Types = ContextFreeSexpParser::parse(&input[2])?;
+            Ok(DeclareVar::new(id, ty))
+        }
+    }
+
+    impl<
+        Identifier: AtomParser + Clone + Eq,
+        Types: AtomParser + Copy + Eq,
+    > ContextFreeSexpParser for Constraint<Identifier, Types>{
+        fn parse(input: &sexp::Sexp) -> Result<Self, String> {
+            let input = match input{
+                sexp::Sexp::List(inputs) => inputs,
+                _ => return Err(format!("Expected a list in parse constraint, got {:?}", input))
+            };
+            if input.len() != 2 {
+                return Err(format!("Expected 2 arguments in parse constraint, got {:?}", input.len()));
+            }
+            let body = parse_exp(&input[1])?;
+            Ok(Constraint::new(body))
+        }
+    }
+
 }
 
 /// 使用 RcFunctionVar 实现总体 FunctionVar 的上下文
@@ -231,7 +361,7 @@ pub mod rc_function_var_context {
         }
     }
 
-    use crate::base::{function::{BuiltinFunction, ExecError, PositionedExecutable, VarIndex}, language::{DefineFun as BaseDefineFun, Type}, logic::LogicTag};
+    use crate::base::{function::{BuiltinFunction, ExecError, PositionedExecutable, VarIndex}, language::{Constraint, DeclareVar, DefineFun as BaseDefineFun, SynthFun, Type}, logic::LogicTag};
     use super::parser::{AtomParser, ContextFreeSexpParser, ContextSexpParser, MutContextSexpParser};
     use crate::base::logic::{Logic, parse_logic_tag};
     use crate::base::scope::{Scope, ScopeImpl};
@@ -240,16 +370,18 @@ pub mod rc_function_var_context {
         'a,
         Identifier: VarIndex + Clone + Eq + Hash + Debug,
         PrimValues: Copy + Eq,
-        Types: Copy
+        Types: Copy + Eq
     > {
         SetLogic(LogicTag),
-        DefineFun(Arc<DefineFun<'a, Identifier, PrimValues, Types>>)
-        // TODO
+        DefineFun(Arc<DefineFun<'a, Identifier, PrimValues, Types>>),
+        SynthFun(SynthFun<'a, Identifier, PrimValues, Types>),
+        DeclareVar(DeclareVar<Identifier, Types>),
+        Constraint(Constraint<Identifier, Types>),
+        CheckSynth,
     }  
 
     type DefineFun<'a, Identifier, Values, Types> = BaseDefineFun<Identifier, Values, Types, RcFunctionVar<'a, Identifier, Values>, Context<'a, Identifier, Values, Types>>;
     impl <'a, 'b, Identifier, Values, Types> MutContextSexpParser <
-        
         Identifier,
         Values,
         RcFunctionVar<'a, Identifier, Values>,
@@ -260,11 +392,13 @@ pub mod rc_function_var_context {
     for Command<'a, Identifier, Values, Types>
     where Identifier: AtomParser + VarIndex + Eq + Clone + Hash + Debug + 'static,  // 不想再和生命周期斗争了
           Values: AtomParser + Copy + Debug + Eq + 'static,
-          Types: ContextFreeSexpParser + Copy + Type + 'static
+          Types: ContextFreeSexpParser + Copy + Type + Eq + 'static
     {
         fn head() -> sexp::Atom {
             sexp::Atom::S(" ".to_string())
         }
+        /// 注意该 parser 会在 parse 的同时，完成对应的对上下文的操作。包括为 DefineFun 建立 Arc 的函数指针并加入 context，把 DeclareVar 加入 context
+        /// 这样的设计有点耦合，但是懒得改了（：
         fn parse(input: &sexp::Sexp, context: &mut Context<'a, Identifier, Values, Types>) -> Result<Self, String> {
             match input {
                 sexp::Sexp::List(list) => {
@@ -293,7 +427,22 @@ pub mod rc_function_var_context {
                                         Err(format!("Variable {} already exists", var_index.to_name()))
                                     }
                                 }
-                                // TODO: Other commands
+                                "synth-fun" => {
+                                    let synth_fun = SynthFun::parse(input)?;
+                                    Ok(Command::SynthFun(synth_fun))
+                                }
+                                "declare-var" => {
+                                    let declare_var = DeclareVar::<Identifier, Types>::parse(input)?;
+                                    context.add_var(declare_var.get_id().clone(), *declare_var.get_type());
+                                    Ok(Command::DeclareVar(declare_var))
+                                }
+                                "constraint" => {
+                                    let constraint = Constraint::<Identifier, Types>::parse(input)?;
+                                    Ok(Command::Constraint(constraint))
+                                }
+                                "check-synth" => {
+                                    Ok(Command::CheckSynth)
+                                }
                                 _ => Err(format!("Unknown command: {}", s))
                             }
                         } else {

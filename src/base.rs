@@ -547,15 +547,37 @@ pub mod language {
         }
     }
 
+    /// Declare-var
+    pub struct DeclareVar<Identifier, Types> {
+        var_index: Identifier,
+        var_type: Types,
+    }
+
+    impl <Identifier, Types> DeclareVar<Identifier, Types> {
+        pub fn new(var_index: Identifier, var_type: Types) -> Self {
+            DeclareVar {
+                var_index,
+                var_type
+            }
+        }
+        pub fn get_id(&self) -> &Identifier {
+            &self.var_index
+        }
+        pub fn get_type(&self) -> &Types {
+            &self.var_type
+        }
+
+    }
+
     /// 一条上下文无关文法中的生成规则
-    struct Rule<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq> {
+    pub struct Rule<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq> {
         body: Exp<Identifier, PrimValue>,
         /// 统计每个在右侧出现非终结符的数量，方便枚举
         // counts_of_non_terminal: HashMap<Identifier, usize>,
         /// 将非终结符的每次出现统计成可变引用，需要时直接替换。完成后，可以调用 reset 方法恢复初始状态 
         counts_of_non_terminal: OnceCell<HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>>>, 
     } 
-    impl <'a, Identifier: Clone + Hash + Eq + Debug, PrimValue: Copy + Eq> Rule<'a, Identifier, PrimValue> {
+    impl <'a, Identifier: Clone + Hash + Eq + Debug, PrimValue: Copy + Eq + Debug> Rule<'a, Identifier, PrimValue> {
         pub fn new(body: Exp<Identifier, PrimValue>) -> Self {
             Rule {
                 body,
@@ -568,7 +590,7 @@ pub mod language {
         >
         (&'a mut self, contains: F)  {
             let counts = count_vars_occurrence(&mut self.body, contains);
-            self.counts_of_non_terminal.set(counts);
+            self.counts_of_non_terminal.set(counts).unwrap();
         }
         /// 假设已经初始化好了 counts_of_non_terminal，可以直接获取
         pub fn get_counts(&self) -> &HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>> {
@@ -614,8 +636,8 @@ pub mod language {
         }
     }
 
-
-    struct SynthFun<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq, Types> {
+    /// 注意由于 Rule 中 count 的设计，SynthFun 一旦 init_counts 后就无法移动了，需要谨慎使用
+    pub struct SynthFun<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq, Types> {
         /// 函数名
         name: Identifier,
         /// 参数列表
@@ -628,7 +650,7 @@ pub mod language {
         types_of_non_terminal: HashMap<Identifier, Types>,
     }
 
-    impl <'a, Identifier: Clone + Eq + Hash, PrimValue: Copy + Eq, Types> SynthFun<'a, Identifier, PrimValue, Types> {
+    impl <'a, Identifier: Clone + Eq + Hash + Debug, PrimValue: Copy + Eq + Debug, Types> SynthFun<'a, Identifier, PrimValue, Types> {
         pub fn new(
             name: Identifier,
             args: Vec<(Identifier, Types)>,
@@ -642,6 +664,13 @@ pub mod language {
                 return_type,
                 rules,
                 types_of_non_terminal,
+            }
+        }
+        pub fn init_counts(&'a mut self) {
+            for rules in self.rules.values_mut() {
+                for rule in rules {
+                    rule.counts_init(|var| self.types_of_non_terminal.contains_key(var));
+                }
             }
         }
         pub fn get_name(&self) -> &Identifier {
@@ -695,7 +724,7 @@ pub mod language {
         }
     }
 
-    struct Constraint<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
+    pub struct Constraint<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
         body: Exp<Identifier, PrimValue>,
     }
     impl <Identifier: Clone + Eq, PrimValue: Copy + Eq> Constraint<Identifier, PrimValue> {
