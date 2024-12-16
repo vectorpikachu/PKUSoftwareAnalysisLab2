@@ -1,20 +1,61 @@
 pub mod lia {
-    use std::{cell::RefCell, rc::Rc, sync::Arc};
+    use std::{cell::{OnceCell, RefCell}, collections::HashMap, marker::PhantomData, rc::Rc, sync::Arc};
 
     use sexp::Error;
+    use z3::ast::{Ast, Dynamic};
 
-    use crate::{base::{function::{ExecError, PositionedExecutable}, language::Type, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}};
+    use crate::{base::{function::{ExecError, PositionedExecutable}, language::{DefineFun, Exp, SynthFun, Terms, Type}, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}, z3_solver::{GetZ3Type, GetZ3Value, NewPrimValues, Z3Solver}};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum Types {
+    pub enum Types {
         Int,
         Bool,
         Function
     }
+
+    impl<'ctx> GetZ3Type<'ctx> for Types {
+        fn get_z3_type(&self, ctx: &'ctx z3::Context) -> z3::Sort<'ctx> {
+            match self {
+                Types::Int => z3::Sort::int(ctx),
+                Types::Bool => z3::Sort::bool(ctx),
+                Types::Function => panic!("Function type is not supported")
+            }
+        }
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum Values{
+    pub enum Values{
         Int(i64),
         Bool(bool),
+    }
+
+    impl<'ctx> GetZ3Value<'ctx> for Values {
+        fn get_z3_value(&self, ctx: &'ctx z3::Context) -> z3::ast::Dynamic<'ctx> {
+            match self {
+                Values::Int(i) => {
+                    let i = z3::ast::Int::from_i64(ctx, *i);
+                    i.into()
+                }
+                Values::Bool(b) => {
+                    let b = z3::ast::Bool::from_bool(ctx, *b);
+                    b.into()
+                }
+            }
+        }
+    }
+
+    impl NewPrimValues for Values {
+        fn new(z3_val: &Dynamic) -> Self {
+            match z3_val.get_sort().kind() {
+                z3::SortKind::Int => Values::Int(
+                    z3_val.as_int().unwrap().as_i64().expect("Expected an integer")
+                ),
+                z3::SortKind::Bool => Values::Bool(
+                    z3_val.as_bool().unwrap().as_bool().expect("Expected a boolean")
+                ),
+                _ => panic!("Unsupported sort kind")
+            }
+        }
     }
 
     impl AtomParser for Values {
@@ -147,6 +188,42 @@ pub mod lia {
             _ => panic!("Expected a list")
         }
         ;
+    }
+
+    #[test]
+    fn test_z3_solver() {
+        use crate::lia_logic::lia::{Types, Values};
+        let ctx = z3::Context::new(&Default::default());
+
+        let define_fun = DefineFun {
+            var_index: "g".to_string(),
+            args: vec![("x".to_string(), Types::Int)],
+            context: OnceCell::<Arc<Context<String, Values, Types>>>::new(),
+            return_type: Types::Int,
+            body: Exp::Value(Terms::<String, Values>::Var("x".to_string())),
+            _phantom: PhantomData::<RcFunctionVar<'_, String, Values>>,
+        };
+
+        let mut solver = Z3Solver::new::<Values, Types, RcFunctionVar<String, Values>, Context<String, Values, Types>>(
+            &[define_fun],
+            &[],
+            &SynthFun::new(
+                "f".to_string(),
+                vec![("x".to_string(), Types::Int)],
+                Types::Int,
+                HashMap::new(),
+                HashMap::new(),
+            ),
+            &[],
+            &ctx,
+        );
+
+        for defined_fun in solver.get_defined_funs().iter() {
+            println!("{:?}", defined_fun);
+        }
+
+        println!("{:?}", solver.get_synth_fun());
+        
     }
 
 }
