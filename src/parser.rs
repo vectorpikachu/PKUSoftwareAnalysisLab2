@@ -376,7 +376,7 @@ pub mod rc_function_var_context {
         DefineFun(Arc<DefineFun<'a, Identifier, PrimValues, Types>>),
         SynthFun(SynthFun<'a, Identifier, PrimValues, Types>),
         DeclareVar(DeclareVar<Identifier, Types>),
-        Constraint(Constraint<Identifier, Types>),
+        Constraint(Constraint<Identifier, PrimValues>),
         CheckSynth,
     }  
 
@@ -437,11 +437,15 @@ pub mod rc_function_var_context {
                                     Ok(Command::DeclareVar(declare_var))
                                 }
                                 "constraint" => {
-                                    let constraint = Constraint::<Identifier, Types>::parse(input)?;
+                                    let constraint = Constraint::<Identifier, Values>::parse(input)?;
                                     Ok(Command::Constraint(constraint))
                                 }
                                 "check-synth" => {
                                     Ok(Command::CheckSynth)
+                                }
+                                "set-logic" => {
+                                    let logic = parse_logic_tag(sexp::Atom::S(list[1].to_string()));
+                                    Ok(Command::SetLogic(logic))
                                 }
                                 _ => Err(format!("Unknown command: {}", s))
                             }

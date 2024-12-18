@@ -4,7 +4,7 @@ pub mod lia {
     use sexp::Error;
     use z3::ast::{Ast, Dynamic};
 
-    use crate::{base::{function::{ExecError, PositionedExecutable}, language::{DefineFun, Exp, SynthFun, Terms, Type}, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}, z3_solver::{GetZ3Type, GetZ3Value, NewPrimValues, Z3Solver}};
+    use crate::{base::{function::{ExecError, PositionedExecutable}, language::{DefineFun, Exp, SynthFun, Terms, Type}, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}, z3_solver::Z3Solver};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum Types {
@@ -13,15 +13,7 @@ pub mod lia {
         Function
     }
 
-    impl<'ctx> GetZ3Type<'ctx> for Types {
-        fn get_z3_type(&self, ctx: &'ctx z3::Context) -> z3::Sort<'ctx> {
-            match self {
-                Types::Int => z3::Sort::int(ctx),
-                Types::Bool => z3::Sort::bool(ctx),
-                Types::Function => panic!("Function type is not supported")
-            }
-        }
-    }
+    
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum Values{
@@ -29,35 +21,7 @@ pub mod lia {
         Bool(bool),
     }
 
-    impl<'ctx> GetZ3Value<'ctx> for Values {
-        fn get_z3_value(&self, ctx: &'ctx z3::Context) -> z3::ast::Dynamic<'ctx> {
-            match self {
-                Values::Int(i) => {
-                    let i = z3::ast::Int::from_i64(ctx, *i);
-                    i.into()
-                }
-                Values::Bool(b) => {
-                    let b = z3::ast::Bool::from_bool(ctx, *b);
-                    b.into()
-                }
-            }
-        }
-    }
-
-    impl NewPrimValues for Values {
-        fn new(z3_val: &Dynamic) -> Self {
-            match z3_val.get_sort().kind() {
-                z3::SortKind::Int => Values::Int(
-                    z3_val.as_int().unwrap().as_i64().expect("Expected an integer")
-                ),
-                z3::SortKind::Bool => Values::Bool(
-                    z3_val.as_bool().unwrap().as_bool().expect("Expected a boolean")
-                ),
-                _ => panic!("Unsupported sort kind")
-            }
-        }
-    }
-
+    
     impl AtomParser for Values {
         fn parse(input: &sexp::Atom) -> Result<Self, String> {
             match input {
@@ -139,7 +103,7 @@ pub mod lia {
         }
     }
     use parser::rc_function_var_context::Context;
-    fn get_empty_context_with_builtin<'a>() -> Context<'a, String, Values, Types> {
+    pub fn get_empty_context_with_builtin<'a>() -> Context<'a, String, Values, Types> {
         let mut context = parser::rc_function_var_context::Context::<String, Values, Types>::new(None);
         context.add_and_set_function_var("+".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::Add)));
         context.add_and_set_function_var("-".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::Sub)));
@@ -205,7 +169,7 @@ pub mod lia {
         };
 
         let mut solver = Z3Solver::new::<Values, Types, RcFunctionVar<String, Values>, Context<String, Values, Types>>(
-            &[define_fun],
+            &[Arc::new(define_fun)],
             &[],
             &SynthFun::new(
                 "f".to_string(),
@@ -220,9 +184,16 @@ pub mod lia {
 
         for defined_fun in solver.get_defined_funs().iter() {
             println!("{:?}", defined_fun);
+            println!("{:?}", defined_fun.1.to_string());
+            
         }
 
         println!("{:?}", solver.get_synth_fun());
+
+        let this_solv = solver.get_solver();
+        let res = this_solv.check();
+        println!("{:?}", res);
+        println!("{:?}", this_solv.get_assertions());
         
     }
 
