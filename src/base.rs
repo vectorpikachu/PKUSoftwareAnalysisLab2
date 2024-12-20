@@ -570,74 +570,73 @@ pub mod language {
     }
 
     /// 一条上下文无关文法中的生成规则
-    pub struct Rule<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq> {
+    pub struct Rule<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
         body: Exp<Identifier, PrimValue>,
-        /// 统计每个在右侧出现非终结符的数量，方便枚举
         // counts_of_non_terminal: HashMap<Identifier, usize>,
-        /// 将非终结符的每次出现统计成可变引用，需要时直接替换。完成后，可以调用 reset 方法恢复初始状态 
-        counts_of_non_terminal: OnceCell<HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>>>, 
+        // counts_of_non_terminal: OnceCell<HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>>>, 
+        // is_terminal: bool,
     } 
-    impl <'a, Identifier: Clone + Hash + Eq + Debug, PrimValue: Copy + Eq + Debug> Rule<'a, Identifier, PrimValue> {
+    impl <'a, Identifier: Clone + Hash + Eq + Debug, PrimValue: Copy + Eq + Debug> Rule<Identifier, PrimValue> {
         pub fn new(body: Exp<Identifier, PrimValue>) -> Self {
             Rule {
                 body,
-                counts_of_non_terminal: OnceCell::new()
             }
         }
-        /// 自动统计右侧非终结符的数量
-        pub fn counts_init<
+        /// 将非终结符的每次出现统计成可变引用，需要时直接替换。
+        /// 入参用来判定哪些符号是非终结符
+        pub fn get_counts<
             F : Fn(&Identifier) -> bool + Clone
         >
-        (&'a mut self, contains: F)  {
-            let counts = count_vars_occurrence(&mut self.body, contains);
-            self.counts_of_non_terminal.set(counts).unwrap();
+        (&'a mut self, contains: F) -> HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>> {
+            count_vars_occurrence(&mut self.body, contains)
         }
-        /// 假设已经初始化好了 counts_of_non_terminal，可以直接获取
-        pub fn get_counts(&self) -> &HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>> {
-            self.counts_of_non_terminal.get().unwrap()
-        }
-        pub fn is_terminal(&self) -> bool {
-            self.get_counts().is_empty()
-        }
+        // /// 假设已经初始化好了 counts_of_non_terminal，可以直接获取
+        // pub fn get_counts(&self) -> &HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>> {
+        //     self.counts_of_non_terminal.get().unwrap()
+        // }
+        // pub fn is_terminal(&self) -> bool {
+        //     self.get_counts().is_empty()
+        // }
 
-        /// 在 Debug 模式下，会自动检查变量是不是在右边出现的非终结符
+        /// 由于信息不足，这里不会检查是否是非终结符，请在调用前确保是非终结符
+        /// 同时，每次调用该函数都会搜索一边表达式树，因此高频率的替换建议使用 get_counts 给出的可变引用
         pub fn subst_non_terminal_once(&self, exp: Exp<Identifier, PrimValue>, var: &Identifier, replacement: &Exp<Identifier, PrimValue>) -> Exp<Identifier, PrimValue> {
-            if cfg!(debug_assertions) {
-                if self.get_counts().get(var).is_none() {
-                    let error: String = format!("Trying to substitute a non-terminal variable: {:?}, all non-terminals: {:?}", var, self.get_counts().keys());
-                    panic!("{}", error);
-                }
-            }
+            // if cfg!(debug_assertions) {
+            //     if self.get_counts().get(var).is_none() {
+            //         let error: String = format!("Trying to substitute a non-terminal variable: {:?}, all non-terminals: {:?}", var, self.get_counts().keys());
+            //         panic!("{}", error);
+            //     }
+            // }
             subst_once(exp, var, replacement)
         }
 
-        pub fn get_non_terminal_vars(&self) -> impl Iterator<Item = &Identifier> {
-            self.get_counts().keys()
-        }
+        // pub fn get_non_terminal_vars(&self) -> impl Iterator<Item = &Identifier> {
+        //     self.get_counts().keys()
+        // }
 
-        pub fn get_non_terminal_vars_and_counts(&self) -> impl Iterator<Item = (&Identifier, &Vec<&'a mut Exp<Identifier, PrimValue>>)> {
-            self.get_counts().iter()
-        }
+        // pub fn get_non_terminal_vars_and_counts(&self) -> impl Iterator<Item = (&Identifier, &Vec<&'a mut Exp<Identifier, PrimValue>>)> {
+        //     self.get_counts().iter()
+        // }
 
-        pub fn get_mut_non_terminal_vars_and_counts(&mut self) -> impl Iterator<Item = (&Identifier, &mut Vec<&'a mut Exp<Identifier, PrimValue>>)> {
-            self.counts_of_non_terminal.get_mut().unwrap().iter_mut()
-        }
+        // pub fn get_mut_non_terminal_vars_and_counts(&mut self) -> impl Iterator<Item = (&Identifier, &mut Vec<&'a mut Exp<Identifier, PrimValue>>)> {
+        //     self.counts_of_non_terminal.get_mut().unwrap().iter_mut()
+        // }
 
         pub fn get_body(&self) -> &Exp<Identifier, PrimValue> {
             &self.body
         }
 
-        pub fn reset_body(&mut self) {
-            for (var, exp_ref) in self.counts_of_non_terminal.get_mut().unwrap() {
-                for exp in exp_ref {
-                    **exp = Exp::Value(Terms::Var(var.clone()));
-                }
-            }
-        }
+        // pub fn reset_body(&mut self) {
+        //     for (var, exp_ref) in self.counts_of_non_terminal.get_mut().unwrap() {
+        //         for exp in exp_ref {
+        //             **exp = Exp::Value(Terms::Var(var.clone()));
+        //         }
+        //     }
+        // }
     }
 
     /// 注意由于 Rule 中 count 的设计，SynthFun 一旦 init_counts 后就无法移动了，需要谨慎使用
-    pub struct SynthFun<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq, Types> {
+    pub struct SynthFun<Identifier: Clone + Eq, PrimValue: Copy + Eq, Types> {
         /// 函数名
         name: Identifier,
         /// 参数列表
@@ -645,17 +644,17 @@ pub mod language {
         /// 返回值类型
         return_type: Types,
         /// 每个非终结符对应的生成规则
-        rules: HashMap<Identifier, Vec<Rule<'a, Identifier, PrimValue>>>,
+        rules: HashMap<Identifier, Vec<Rule<Identifier, PrimValue>>>,
         /// 每个非终结符对应的类型
         types_of_non_terminal: HashMap<Identifier, Types>,
     }
 
-    impl <'a, Identifier: Clone + Eq + Hash + Debug, PrimValue: Copy + Eq + Debug, Types> SynthFun<'a, Identifier, PrimValue, Types> {
+    impl <Identifier: Clone + Eq + Hash + Debug, PrimValue: Copy + Eq + Debug, Types> SynthFun<Identifier, PrimValue, Types> {
         pub fn new(
             name: Identifier,
             args: Vec<(Identifier, Types)>,
             return_type: Types,
-            rules: HashMap<Identifier, Vec<Rule<'a, Identifier, PrimValue>>>,
+            rules: HashMap<Identifier, Vec<Rule<Identifier, PrimValue>>>,
             types_of_non_terminal: HashMap<Identifier, Types>,
         ) -> Self {
             SynthFun {
@@ -666,13 +665,14 @@ pub mod language {
                 types_of_non_terminal,
             }
         }
-        pub fn init_counts(&'a mut self) {
-            for rules in self.rules.values_mut() {
-                for rule in rules {
-                    rule.counts_init(|var| self.types_of_non_terminal.contains_key(var));
-                }
-            }
-        }
+        // 由于修改了实现，下面的方法有点没有意义，请在使用时手动获取每个 Rule 的非终结符引用  
+        // pub fn get_all_counts(&mut self) {
+        //     for rules in self.rules.values_mut() {
+        //         for rule in rules {
+        //             rule.get_counts(|var| self.types_of_non_terminal.contains_key(var));
+        //         }
+        //     }
+        // }
         pub fn get_name(&self) -> &Identifier {
             &self.name
         }
@@ -682,19 +682,22 @@ pub mod language {
         pub fn get_return_type(&self) -> &Types {
             &self.return_type
         }
-        pub fn get_rules(&self, non_terminal: &Identifier) -> Option<&Vec<Rule<'a, Identifier, PrimValue>>> {
+        // 为了安全期间，这里不提供 Rule 的可变引用。使用时，可以将每个 Rule 复制一次，在复制的 Rule 上进行操作
+        pub fn get_rules(&self, non_terminal: &Identifier) -> Option<&Vec<Rule<Identifier, PrimValue>>> {
             self.rules.get(non_terminal)
         }
         pub fn get_type(&self, non_terminal: &Identifier) -> Option<&Types> {
             self.types_of_non_terminal.get(non_terminal)
         }
+        pub fn get_non_terminal_checker(&self) -> (impl Fn(&Identifier) -> bool + Clone + use<'_, Identifier, PrimValue, Types>) {
+            |var| self.types_of_non_terminal.contains_key(var)
+        }
     }
     impl <
-        'a, 
         Identifier: Clone + Eq + Hash + VarIndex + Debug, 
         PrimValue: Copy + Eq + Debug, 
         Types,
-    > SynthFun<'a, Identifier, PrimValue, Types> {
+    > SynthFun<Identifier, PrimValue, Types> {
         /// 将指定的 exp 视作当前 SynthFun 的 body 并返回一个（临时的） BasicFun
         pub fn exp_to_basic_fun<
             'b,
