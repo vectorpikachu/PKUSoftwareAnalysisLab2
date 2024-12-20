@@ -78,6 +78,14 @@ pub fn enum_synth_fun() {
         }
     }
 
+    let mut synth_fun = match synth_func {
+        Some(s) => {
+            s
+        }
+        None => panic!("No synth function defined"),
+    };
+    
+
     let rc_context = Arc::new(ctx);
     for define in defines.clone() {
         match define.context.set(rc_context.clone()) {
@@ -90,7 +98,6 @@ pub fn enum_synth_fun() {
      * 如何把 builtin 函数加入? 
      */
 
-    let synth_fun = synth_func.unwrap();
     let defines = defines.as_slice();
     let declare_vars = declare_vars.as_slice();
     let constraints = constraints.as_slice();
@@ -103,7 +110,18 @@ pub fn enum_synth_fun() {
         &z3_ctx
     );
 
-    
+    // 首先获取所有符合返回值的 终结符
+    let mut terminals = Vec::new();
+    synth_fun.init_counts();
+    // 得到 Start 里面的所有终结符
+    let start_rules = synth_fun.get_rules(&"Start".to_string()).unwrap();
+    for rule in start_rules {
+        if rule.is_terminal() {
+            terminals.push(rule);
+        }
+    }
+
+    println!("Terminals: {:#?}", terminals);
 
     println!("Synthesizing function: {:#?}", solver.get_synth_fun());
 

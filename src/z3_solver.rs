@@ -4,7 +4,7 @@ use std::{collections::HashMap, fmt::Debug, hash::Hash, result::Result};
 use z3::{self, ast::Ast};
 use z3::{Context, RecFuncDecl, Sort, SortKind};
 
-use z3::ast::{Bool, Dynamic, Int};
+use z3::ast::{Dynamic, Int};
 
 use crate::base::language::{BasicFun, Exp, Terms};
 use crate::base::{
@@ -112,6 +112,11 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug> Z3Solver<'ctx, Iden
             declared_vars: HashMap::new(),
         };
 
+        // 我只需要先建立一个 Decl 就好了
+        let synth_fun_decl = synth_fun.get_z3_decl(&ctx, &z3_solver);
+        z3_solver.synth_fun = Some(synth_fun_decl);
+        println!("Solver's Synth Fun: {:#?}", z3_solver.synth_fun);
+
         // TODO: Add builtin functions
         let x = Int::new_const(ctx, "x");
         let y = Int::new_const(ctx, "y");
@@ -144,12 +149,6 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug> Z3Solver<'ctx, Iden
         }
 
         println!("Solver's Defined Funcs: {:#?}", z3_solver.defined_funs);
-
-        // 我只需要先建立一个 Decl 就好了
-        let synth_fun_decl = synth_fun.get_z3_decl(&ctx, &z3_solver);
-        z3_solver.synth_fun = Some(synth_fun_decl);
-
-        println!("Solver's Synth Fun: {:#?}", z3_solver.synth_fun);
 
         for declare_var in declare_vars {
             let z3_decl = declare_var.get_z3_var(&ctx, &z3_solver);
@@ -208,17 +207,6 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug> Z3Solver<'ctx, Iden
             .as_ref()
             .unwrap()
             .add_def(args_array, &synth_fun_expr);
-
-        /*
-        let eq_constraint = self
-            .synth_fun
-            .unwrap()
-            .apply(args_ref)
-            ._eq(&synth_fun_expr.apply(args_ref));
-
-        let quantifier = z3::ast::forall_const(&self.ctx, &args, &[], &eq_constraint);
-
-        self.solver.assert(&quantifier);*/
 
         let res = self.solver.check();
         match res {

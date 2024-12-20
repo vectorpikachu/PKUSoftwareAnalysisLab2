@@ -671,6 +671,7 @@ pub mod language {
 
     
 
+    #[derive(Debug)]
     /// 一条上下文无关文法中的生成规则
     pub struct Rule<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq> {
         body: Exp<Identifier, PrimValue>,
@@ -748,6 +749,7 @@ pub mod language {
         }
     }
 
+    #[derive(Debug)]
     /// 注意由于 Rule 中 count 的设计，SynthFun 一旦 init_counts 后就无法移动了，需要谨慎使用
     pub struct SynthFun<'a, Identifier: Clone + Eq, PrimValue: Copy + Eq, Types> {
         /// 函数名
