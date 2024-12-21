@@ -125,4 +125,10 @@ pub fn enum_synth_fun() {
 
     println!("Synthesizing function: {:#?}", solver.get_synth_fun());
 
+    
+    let my_synth_fun = "((define-fun max2 ((x Int) (y Int)) Int (ite (>= x y) x y)))";
+    let my_exp = sexp::parse(my_synth_fun).unwrap();
+    let mut parse_exp =Command::<String, lia::Values, lia::Types>::parse(&my_exp, &mut ctx);
+    
+
 }
