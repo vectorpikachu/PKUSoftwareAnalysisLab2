@@ -1,8 +1,15 @@
 //! 实现最基础的枚举合成器
 
+use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::env;
+use std::fmt::Debug;
 use std::fs;
+use std::hash::Hash;
+use std::iter::Peekable;
+use std::rc::Rc;
 
 use either::Either;
 use either::Either::Left;
@@ -355,8 +362,8 @@ fn dfs_all_non_terminals<'a>(
         // 剩余的 program 大小为 sz, 那么应该从 candidate_exprs[sz] 中取值
         // 获取当前的 candidate_exprs[sz][cur_non_terminal]
         // 然后选择一个, 接着对 (cur_non_terminal, cur_prog)的下一个, left_prog_size - sz递归
-        if let Some(cur_candidates) = candidate_exprs.get_mut(&sz) {
-            if let Some(non_terminal_candidates) = cur_candidates.get_mut(&cur_non_terminal) {
+        if let Some(cur_candidates) = candidate_exprs.get(&sz) {
+            if let Some(non_terminal_candidates) = cur_candidates.get(&cur_non_terminal) {
                 for candidate in non_terminal_candidates {
                     if let Some(exps) = non_terminals.get(&cur_non_terminal) {
                         if (cur_prog as usize) < exps.len() {
@@ -386,6 +393,116 @@ fn dfs_all_non_terminals<'a>(
             }
         }
     }
+}
+
+/// 要求 occurrences_mut_pointer 中的指针指向的是 actual_rule 的 body 的子节点
+fn dfs_one_non_terminal_rule_aux<
+    Identifier: Eq + Clone + Hash + Debug,
+    Values: Eq + Copy + Debug
+>(
+    actual_rule: &mut Rule<Identifier, Values>,
+    // non_terminals: &HashSet<Identifier>,
+    candidate_exprs: &HashMap<i32, HashMap<Identifier, Vec<Exp<Identifier, Values>>>>,
+    results: &mut Vec<Exp<Identifier, Values>>,
+    remaining_size: i32,
+    remaining_non_terminals: i32,   // 表达式中还余的非终结符个数
+    occurrences_mut_pointer: &HashMap<Identifier, Vec<*mut Exp<Identifier, Values>>>,
+    mut identifier_iter: Peekable<impl Iterator<Item = Identifier> + Clone>,
+    pointer_iter: Option<std::slice::Iter<*mut Exp<Identifier, Values>>>, // 下一个要修改的是 cur_enum_non_terminal 的哪个引用，为空表示从当前非终结符的第一个引用开始
+){
+    if remaining_size == 0 {
+        if remaining_non_terminals == 0 {
+            // 所有非终结符都替换完毕，将结果加入到 results 中
+            results.push(actual_rule.get_body().clone());
+        }
+    }
+    let cur_non_terminals = match identifier_iter.peek() {
+        Some(id) => id.clone(),
+        None => return, // 非终结符已经遍历完成，而 remaining_size 非零，直接返回
+    };
+    let cur_occurrences = occurrences_mut_pointer.get(&cur_non_terminals).unwrap(); 
+    let mut pointer_iter = match pointer_iter {
+        Some(iter) => iter,
+        None => cur_occurrences.iter(),
+    };
+    let cur_enum_loc = match pointer_iter.next() {
+        None => {
+            // 当前非终结符的所有引用都已经替换完毕，用下一个非终结符继续替换
+            identifier_iter.next().unwrap();
+            dfs_one_non_terminal_rule_aux(
+                actual_rule,
+                candidate_exprs,
+                results,
+                remaining_size,
+                remaining_non_terminals,
+                occurrences_mut_pointer,
+                identifier_iter,
+                None
+            );
+            return;
+        }
+        Some(loc) => loc,
+
+    };
+    // 否则
+    for sz in 1..=remaining_size {
+        // 选择当前非终结符的 size
+        if let Some(cur_candidates) = candidate_exprs.get(&sz) {
+            if let Some(cur_candidates) = cur_candidates.get(&cur_non_terminals) {
+                for candidate in cur_candidates {
+                    // 替换当前的引用
+                    unsafe {
+                        **cur_enum_loc = candidate.clone();
+                    }
+                    dfs_one_non_terminal_rule_aux(
+                        actual_rule,
+                        candidate_exprs,
+                        results,
+                        remaining_size - sz,
+                        remaining_non_terminals - 1,
+                        occurrences_mut_pointer,
+                        identifier_iter.clone(),
+                        Some(pointer_iter.clone()),
+                    );
+                }
+            }
+        }
+    }
+
+}
+
+fn dfs_one_non_terminal_rule<
+    Identifier: Eq + Clone + Hash + Debug,
+    Values: Eq + Copy + Debug
+>(
+    rule: &Rule<Identifier, Values>,
+    non_terminals: &HashSet<Identifier>,
+    candidate_exprs: &HashMap<i32, HashMap<Identifier, Vec<Exp<Identifier, Values>>>>,
+    total_size: i32,
+) -> Vec<Exp<Identifier, Values>>
+{
+    let mut rule_to_modify = rule.clone();  // 复制一份进行操作
+    let occurrences = rule_to_modify.get_counts(
+        |id| non_terminals.contains(&id)
+    ).into_iter().map(
+        |(id, ocr)| (id, ocr.into_iter().map(|x| x as *mut Exp<Identifier, Values>).collect())
+    ).collect::<HashMap<Identifier, Vec<*mut Exp<Identifier, Values>>>>();
+    let total_non_terminals_in_rule: i32 = occurrences.iter().map(
+        |(_, ocr)| ocr.len() as i32
+    ).sum();
+    let mut results = Vec::new();
+    dfs_one_non_terminal_rule_aux(
+        &mut rule_to_modify,
+        candidate_exprs,
+        &mut results,
+        total_size,
+        total_non_terminals_in_rule,
+        &occurrences,
+        occurrences.keys().cloned().peekable(),
+        None
+    );
+    results
+
 }
 
 fn get_next(
