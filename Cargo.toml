@@ -7,3 +7,4 @@ edition = "2021"
 either = "1.13.0"
 sexp = "*"
 z3 = {version = "0.12.1", features = ["static-link-z3"]}
+rand = "0.8.3"
