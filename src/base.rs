@@ -761,7 +761,7 @@ pub mod language {
         ) -> Result<PrimValue, ExecError>
         {
             let new_args_map = |var: &Identifier| {
-                if var == var {
+                if fun_to_synth.get_name() == var {
                     let temp_func = fun_to_synth.exp_to_basic_fun(context, exp);
                     Ok(Either::Right(FunctionVar::from_basic_fun(temp_func)))
                 } else {
