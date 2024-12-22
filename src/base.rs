@@ -747,6 +747,31 @@ pub mod language {
         }
     }
     impl <Identifier: Clone + Eq + Debug + VarIndex + Hash, PrimValue: Copy + Eq + Debug> Exp<Identifier, PrimValue> {
+        /// 在指定的上下文中执行该表达式，优先使用 args_map 中的变量
+        pub fn execute_in_optional_context<
+            Types,   
+            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<Identifier, PrimValue, Types, Context>,
+            Context: Scope<Identifier, Types, PrimValue, FunctionVar>,
+        >(
+            &self,
+            context: Option<&Context>,
+            args_map: impl Fn(&Identifier) -> Result<Either<PrimValue, FunctionVar>, GetValueError> + Copy
+        ) -> Result<PrimValue, ExecError>
+        {
+            self.execute(|var| {
+                if let Ok(r) = args_map(var) {
+                    Ok(r)
+                } else {
+                    if let Some(ctx) = context {
+                        ctx.get_value(var)
+                    } else {
+                        Err(GetValueError::VarNotDefinedWhenGet(format!("{:?}", var)))
+                    }
+                }
+            }
+            )
+        }
+    
         /// 用一个 exp 替代 SynthFun 的对象并在给定的上下文中执行该表达式，其实实现有一点低效，没必要让 FunctionVar 建立一个新的 Rc，但是为了简化代码，这里就这样写了
         pub fn instantiate_and_execute<
             Types,   
@@ -768,7 +793,7 @@ pub mod language {
                     args_map(var)
                 }
             };
-            self.execute(new_args_map)
+            self.execute_in_optional_context(context, new_args_map)
         }
     }
 
