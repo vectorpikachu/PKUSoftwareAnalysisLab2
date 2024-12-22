@@ -152,10 +152,12 @@ pub fn enum_synth_fun() {
             if non_term.contains_key(rules.0) {
                 for rule in rules.1.iter() {
                     // 从 non_term 中取出可变引用
-                    // let rep_loc = &mut non_term.get_mut(rules.0).unwrap()[0];
-                    // let pre_exp = (**rep_loc).clone();
-                    // **rep_loc = rule.get_body().clone();
-                    // println!("Try replacing {:#?} with {:#?}", &pre_exp, &rule.get_body());
+                    // {
+                    //     let rep_loc = &mut non_term.get_mut(rules.0).unwrap()[0];
+                    //     let pre_exp = (**rep_loc).clone();
+                    //     **rep_loc = rule.get_body().clone();
+                    //     println!("Try replacing {:#?} with {:#?}", &pre_exp, &rule.get_body());
+                    // }
                     // println!("{:#?}", &mut current_exp);
                 }
             }
