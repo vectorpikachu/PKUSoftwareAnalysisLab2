@@ -668,6 +668,10 @@ pub mod language {
         pub fn get_all_exp(&self) -> Vec<Exp<Identifier, PrimValue>> {
             self.rules.keys().flat_map(|id| self.rules.get(id).unwrap().iter().map(|rule| rule.get_body().clone())).collect()
         }
+
+        pub fn get_all_rules(&self) -> &HashMap<Identifier, Vec<Rule<Identifier, PrimValue>>> {
+            &self.rules
+        }
     }
     impl <
         Identifier: Clone + Eq + Hash + VarIndex + Debug, 

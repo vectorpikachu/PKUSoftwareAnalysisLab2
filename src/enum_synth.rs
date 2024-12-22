@@ -1,15 +1,19 @@
 //! 实现最基础的枚举合成器
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
+use std::rc;
 use std::sync::Arc;
 
+use either::Either;
 use either::Either::Left;
 use either::Either::Right;
 use z3::Config;
 
 use crate::base;
+use crate::base::function::GetValueError;
 use crate::base::language::BasicFun;
 use crate::base::language::Exp;
 use crate::base::language::Rule;
@@ -116,30 +120,25 @@ pub fn enum_synth_fun() {
     println!("Synthesizing function: {:#?}", solver.get_synth_fun());
 
     let mut prog_size = 1;
-
-    let mut candidate_exprs = Vec::new();
-    // 先把初始的的所有 类型满足的终结符加入
-    candidate_exprs.extend(synth_fun.get_all_exp());
-    println!("Now Candidate exprs: {:#?}", candidate_exprs);
-
-    let expr_set: HashSet<Exp<String, lia::Values>> = HashSet::new();
-
-    let exp = Exp::Apply(
-        "mod".to_string(),
-        vec![
-            Exp::Apply(
-                "*".to_string(),
-                vec![
-                    Exp::Value(Terms::Var("Start".to_string())),
-                    Exp::Value(Terms::PrimValue(lia::Values::Int(3))),
-                ],
-            ),
-            Exp::Value(Terms::PrimValue(lia::Values::Int(10))),
-        ],
-    );
-    let ext = extend_expr(&synth_fun, &exp, &expr_set, &mut candidate_exprs);
-    println!("Extend: {:#?}", ext);
-
+    let mut candidate_exprs: HashMap<i32, HashMap<String, Vec<Exp<String, lia::Values>>>> = HashMap::new();
+    candidate_exprs.insert(prog_size, HashMap::new());
+    for rule in synth_fun.get_all_rules() {
+        candidate_exprs.get_mut(&prog_size).unwrap().insert(rule.0.clone(), vec![]);
+        for production in rule.1 {
+            let now_expr = production.get_body().clone();
+            if !check_terminal(&now_expr, &synth_fun) {
+                continue;
+            }
+            candidate_exprs
+                .get_mut(&prog_size)
+                .unwrap()
+                .get_mut(rule.0)
+                .unwrap()
+                .push(now_expr);
+        }
+    }
+    println!("Candidate exprs: {:#?}", candidate_exprs);
+    
     let exp = Exp::Apply(
         "mod".to_string(),
         vec![
@@ -157,10 +156,11 @@ pub fn enum_synth_fun() {
     let ce = solver.get_counterexample(&prog);
     println!("Counterexample: {:#?}", ce);
 
-    let mut counter_examples = Vec::new();
+    let mut counter_examples: Vec<HashMap<String, (lia::Types, lia::Values)>> = Vec::new();
 
+    /* 
     loop {
-        let now_exprs = enumerate_exprs(&synth_fun, &mut candidate_exprs, prog_size, &expr_set);
+        let now_exprs = enumerate_exprs(&synth_fun, &mut candidate_exprs, prog_size);
         println!("Now Candidate exprs: {:#?}", candidate_exprs);
         for expr in now_exprs {
             if check_terminal(&expr, &synth_fun) {
@@ -168,10 +168,22 @@ pub fn enum_synth_fun() {
 
                 println!("Now Program: {:#?}", expr);
                 // 首先计算是否满足先前返回的反例
-                // TODO: 反例到底是个什么东西?
+                // 反例是一个 HashMap<String, (Type, Value)>
+
                 if !counter_examples.is_empty() {
                     for counter_example in counter_examples.iter() {
                         // 直接传给z3判断
+                        for constraint in constraints {
+                            let passed = constraint.instantiate_and_execute(
+                                &synth_fun, 
+                                Some(&ctx), 
+                                &expr, 
+                                |id| match counter_example.get(id) {
+                                    Some((_, v)) => Ok(Either::Left(*v)),
+                                    None => Err(GetValueError::VarNotDefinedWhenGet("Var not defined when get in test conunter examples".to_string()))
+                                }
+                            );
+                        }
                     }
                 }
 
@@ -208,7 +220,7 @@ pub fn enum_synth_fun() {
         if prog_size > 4 {
             break;
         }
-    }
+    }*/
 }
 
 fn check_terminal(
@@ -224,109 +236,16 @@ fn check_terminal(
     }
 }
 
-/// 得到当前 prog_size 的所有表达式
-/// prog_size 表示一个程序里的所有字符的长度
+/// 枚举 prog_size 的所有表达式
+/// 比如说 Expr -> Expr + Expr, 那么就去
+/// candidate_exprs[x1][Expr] 和 candidate_exprs[x2][Expr] 枚举
+/// x1 + x2 = prog_size
+/// 如果有 k 个非终结符, 则 x1 + x2 + ... + xk = prog_size
+/// 所有的结果会被写入 candidate_exprs[prog_size] 中
 fn enumerate_exprs(
     synth_fun: &SynthFun<String, lia::Values, lia::Types>,
-    candidate_exprs: &mut Vec<Exp<String, lia::Values>>,
+    candidate_exprs: &mut HashMap<i32, HashMap<String, Vec<Exp<String, lia::Values>>>>,
     prog_size: i32,
-    expr_set: &HashSet<Exp<String, lia::Values>>,
-) -> Vec<Exp<String, lia::Values>> {
-    let mut new_exprs = Vec::new();
-    for expr in candidate_exprs.clone() {
-        let (terminals, non_terminals) = get_all_counts(synth_fun, &expr);
-        if terminals == prog_size && non_terminals == 0 {
-            new_exprs.push(expr.clone());
-        } else if terminals + non_terminals <= prog_size && non_terminals > 0 {
-            // TODO: 如何枚举生成新的表达式?
-            let now_exprs = extend_expr(synth_fun, &expr, expr_set, candidate_exprs);
-            for new_expr in now_exprs {
-                if !expr_set.contains(&new_expr) {
-                    new_exprs.push(new_expr);
-                }
-            }
-        } else if terminals < prog_size && non_terminals == 0 {
-            // 无论如何也产生不了新的表达式
-            continue;
-        }
-    }
-
-    return new_exprs;
-}
-
-/// 返回 (terminals, non_terminals)
-fn get_all_counts(
-    synth_fun: &SynthFun<String, lia::Values, lia::Types>,
-    expr: &Exp<String, lia::Values>,
-) -> (i32, i32) {
-    match expr {
-        Exp::Value(v) => match v {
-            Terms::PrimValue(_pv) => (1, 0),
-            Terms::Var(v) => {
-                if synth_fun.is_terminal(v) {
-                    (1, 0)
-                } else {
-                    (0, 1)
-                }
-            }
-        },
-        Exp::Apply(_f, args) => {
-            let mut terminals = 1; // 函数名算为一个终结符
-            let mut non_terminals = 0;
-            for arg in args {
-                let (t, n) = get_all_counts(synth_fun, arg);
-                terminals += t;
-                non_terminals += n;
-            }
-            (terminals, non_terminals)
-        }
-    }
-}
-
-fn extend_expr(
-    synth_fun: &SynthFun<String, lia::Values, lia::Types>,
-    expr: &Exp<String, lia::Values>,
-    expr_set: &HashSet<Exp<String, lia::Values>>,
-    candidate_exprs: &mut Vec<Exp<String, lia::Values>>,
-) -> Vec<Exp<String, lia::Values>> {
-    let mut new_exprs = Vec::new();
-    match expr {
-        Exp::Value(v) => match v {
-            Terms::PrimValue(_pv) => {
-                // 无法扩展
-            }
-            Terms::Var(v) => {
-                if synth_fun.is_terminal(v) {
-                    // 无法扩展
-                } else {
-                    // 扩展
-                    let rules = synth_fun.get_rules(v);
-                    match rules {
-                        Some(rules) => {
-                            for rule in rules {
-                                let new_expr =
-                                    rule.subst_non_terminal_once(expr.clone(), v, rule.get_body());
-                                println!("New expr: {:#?}", new_expr);
-                                new_exprs.push(new_expr);
-                            }
-                        }
-                        None => {
-                            // 无法扩展
-                        }
-                    }
-                }
-            }
-        },
-        Exp::Apply(_f, args) => {
-            // 扩展 args
-            for arg in args {
-                let new_exprs_arg = extend_expr(synth_fun, arg, expr_set, candidate_exprs);
-                for new_expr_arg in new_exprs_arg {
-                    let new_expr = exp::apply_exp(_f.clone(), vec![new_expr_arg.clone()]);
-                    new_exprs.push(new_expr);
-                }
-            }
-        }
-    }
-    return new_exprs;
+) {
+    
 }

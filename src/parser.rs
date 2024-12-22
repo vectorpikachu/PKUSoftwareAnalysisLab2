@@ -359,7 +359,7 @@ pub mod rc_function_var_context {
         }
     }
 
-    use crate::base::{function::{BuiltinFunction, ExecError, PositionedExecutable, VarIndex}, language::{Constraint, DeclareVar, DefineFun as BaseDefineFun, SynthFun, Type}, logic::LogicTag};
+    use crate::base::{function::{BuiltinFunction, ExecError, PositionedExecutable, VarIndex}, language::{Constraint, DeclareVar, DefineFun as BaseDefineFun, FromBasicFun, SynthFun, Type}, logic::LogicTag};
     use super::parser::{AtomParser, ContextFreeSexpParser, ContextSexpParser, MutContextSexpParser};
     use crate::base::logic::{Logic, parse_logic_tag};
     use crate::base::scope::{Scope, ScopeImpl};

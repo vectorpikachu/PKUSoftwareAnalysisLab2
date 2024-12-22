@@ -221,7 +221,7 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
         synth_fun: &BasicFun<Identifier, PrimValues, Types, FunctionVar, Context>,
     ) -> Result<
         Either<
-            HashMap<Identifier, PrimValues>,
+            HashMap<Identifier, (Types, PrimValues)>,
             String,
         >,
         String
@@ -261,11 +261,11 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
             z3::SatResult::Sat => {
                 let model = self.solver.get_model().unwrap();
                 let mut result = HashMap::new();
-                for (id, _) in synth_fun.args {
+                for (id, ty) in synth_fun.args {
                     let z3_var = self.declared_vars.get(id).unwrap();
                     let z3_value = model.eval(z3_var, true).unwrap();
                     let value = z3_value.get_prim_value();
-                    result.insert(id.clone(), value);
+                    result.insert(id.clone(), (ty.clone(), value));
                 }
                 return Ok(Left(result));
             }
