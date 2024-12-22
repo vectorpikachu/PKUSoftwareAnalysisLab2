@@ -2,6 +2,7 @@ pub mod collect_callings {
     use std::{collections::HashMap, hash::Hash};
 
     use crate::base;
+    use crate::base::function::VarIndex;
     use crate::base::language::{Constraint, Exp, Terms};
 
     extern crate rand;
@@ -11,20 +12,20 @@ pub mod collect_callings {
     use rand::thread_rng; 
 
     /// 生成一个随机字符串作为标识符
-    // fn gen_identifier <
-    //     Identifier: Clone + Hash + Eq,
-    // > () -> Identifier {
-        // let mut rng = thread_rng();
-        // let identifier: String = std::iter::repeat(())
-        //     .map(|()| rng.sample(Alphanumeric))
-        //     .map(char::from)
-        //     .take(8) // 生成8个字符的随机字符串
-        //     .collect(); // 收集到字符串中
-        // identifier
-    // }
+    fn gen_identifier <
+        Identifier: Clone + Hash + Eq + VarIndex,
+    > (fun_to_synth: &Identifier) -> Identifier {
+        let mut rng = thread_rng();
+        let identifier: String = std::iter::repeat(())
+            .map(|()| rng.sample(Alphanumeric))
+            .map(char::from)
+            .take(8) // 生成8个字符的随机字符串
+            .collect(); // 收集到字符串中
+        VarIndex::from_name(identifier)
+    }
 
     fn trans_calling<
-        Identifier: Clone + Hash + Eq,
+        Identifier: Clone + Hash + Eq + VarIndex,
         Values: Copy + Eq
     > (
         exp: &Exp<Identifier, Values>,
@@ -42,10 +43,7 @@ pub mod collect_callings {
                    .collect();
                 
                 if fun == fun_to_synth{
-
-                    //ToDo 如何生成唯一的标识符
-                    // let calling_id = gen_identifier();
-                    let calling_id = fun.clone();
+                    let calling_id = gen_identifier(fun_to_synth);
                     callings.push((calling_id.clone(), exp.clone()));
                     Exp::Value(Terms::Var(calling_id.clone()))
                 }
@@ -57,7 +55,7 @@ pub mod collect_callings {
     }
 
     pub fn collect_callings_of_fun<
-        Identifier: Clone + Hash + Eq,
+        Identifier: Clone + Hash + Eq + VarIndex,
         Values: Copy + Eq
     > (
         fun_to_synth: &Identifier,
