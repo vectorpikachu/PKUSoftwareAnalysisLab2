@@ -15,7 +15,7 @@ pub mod lia {
 
     
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum Values{
         Int(i64),
         Bool(bool),
@@ -168,7 +168,7 @@ pub mod lia {
             _phantom: PhantomData::<RcFunctionVar<'_, String, Values>>,
         };
 
-        let mut solver = Z3Solver::new::<Values, Types, RcFunctionVar<String, Values>, Context<String, Values, Types>>(
+        let mut solver = Z3Solver::new::<Types, RcFunctionVar<String, Values>, Context<String, Values, Types>>(
             &[Arc::new(define_fun)],
             &[],
             &SynthFun::new(

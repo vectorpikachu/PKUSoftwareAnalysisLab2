@@ -442,7 +442,8 @@ pub mod rc_function_var_context {
                                     Ok(Command::CheckSynth)
                                 }
                                 "set-logic" => {
-                                    let logic = parse_logic_tag(sexp::Atom::S(list[1].to_string()));
+                                    // TODO： 移除这一个分支这是测试用的
+                                    let logic = LogicTag::LIA;
                                     Ok(Command::SetLogic(logic))
                                 }
                                 _ => Err(format!("Unknown command: {}", s))

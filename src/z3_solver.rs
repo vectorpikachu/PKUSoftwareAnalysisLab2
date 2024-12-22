@@ -1,10 +1,11 @@
 use std::sync::Arc;
 use std::{collections::HashMap, fmt::Debug, hash::Hash, result::Result};
 
+use either::Either::{self, Left, Right};
 use z3::{self, ast::Ast};
 use z3::{Context, RecFuncDecl, Sort, SortKind};
 
-use z3::ast::{Dynamic, Int};
+use z3::ast::{Bool, Dynamic, Int};
 
 use crate::base::language::{BasicFun, Exp, Terms};
 use crate::base::{
@@ -18,12 +19,13 @@ pub trait GetZ3Type<'ctx> {
     fn get_z3_type(&self, context: &'ctx Context) -> z3::Sort<'ctx>;
 }
 
-pub trait GetZ3Assert<'ctx, Identifier: VarIndex + Clone + Eq + Hash> {
+pub trait GetZ3Assert<'ctx, Identifier: VarIndex + Clone + Eq + Hash, 
+PrimValues: Copy + Eq + Debug + GetZ3Value<'ctx> + NewPrimValues> {
     /// 把一个 Assertion 转换为 Z3 的表达式
     fn get_z3_assert(
         &self,
         context: &'ctx Context,
-        z3_solver: &Z3Solver<'ctx, Identifier>,
+        z3_solver: &Z3Solver<'ctx, Identifier, PrimValues>,
     ) -> z3::ast::Bool<'ctx>;
 }
 
@@ -32,41 +34,45 @@ pub trait GetZ3Value<'ctx> {
     fn get_z3_value(&self, context: &'ctx Context) -> Dynamic<'ctx>;
 }
 
-pub trait GetZ3Decl<'ctx, Identifier: VarIndex + Clone + Eq + Hash> {
+pub trait GetZ3Decl<'ctx, Identifier: VarIndex + Clone + Eq + Hash, 
+PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug + NewPrimValues> {
     /// 对于 DefineFun 来说，返回的是一个 RecFuncDecl + 它的定义
     fn get_z3_decl(
         &self,
         ctx: &'ctx z3::Context,
-        z3_solver: &Z3Solver<'ctx, Identifier>,
+        z3_solver: &Z3Solver<'ctx, Identifier, PrimValues>,
     ) -> z3::RecFuncDecl<'ctx>;
 }
 
-pub trait GetZ3Var<'ctx, Identifier: VarIndex + Clone + Eq + Hash> {
+pub trait GetZ3Var<'ctx, Identifier: VarIndex + Clone + Eq + Hash,
+PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug + NewPrimValues> {
     /// 把一个变量转换为 Z3 的变量
     fn get_z3_var(
         &self,
         ctx: &'ctx z3::Context,
-        z3_solver: &Z3Solver<'ctx, Identifier>,
+        z3_solver: &Z3Solver<'ctx, Identifier, PrimValues>,
     ) -> Dynamic<'ctx>;
 }
 
-pub trait GetZ3Expr<'ctx, Identifier: VarIndex + Clone + Eq + Hash> {
+pub trait GetZ3Expr<'ctx, Identifier: VarIndex + Clone + Eq + Hash,
+PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug + NewPrimValues> {
     /// 对于一个 Exp 转换为 Z3 表达式
     fn get_z3_expr(
         &self,
         ctx: &'ctx z3::Context,
         args: &HashMap<Identifier, &dyn Ast<'ctx>>,
-        z3_solver: &Z3Solver<'ctx, Identifier>,
+        z3_solver: &Z3Solver<'ctx, Identifier, PrimValues>,
     ) -> Dynamic<'ctx>;
 }
 
-pub trait GetZ3DeclExpr<'ctx, Identifier: VarIndex + Clone + Eq + Hash> {
+pub trait GetZ3DeclExpr<'ctx, Identifier: VarIndex + Clone + Eq + Hash, 
+PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug + NewPrimValues> {
     /// 对于一个 Exp 转换为 Z3 表达式
     fn get_z3_decl_expr(
         &self,
         ctx: &'ctx z3::Context,
         args: &HashMap<Identifier, &dyn Ast<'ctx>>,
-        z3_solver: &Z3Solver<'ctx, Identifier>,
+        z3_solver: &Z3Solver<'ctx, Identifier, PrimValues>,
     ) -> Dynamic<'ctx>;
 }
 
@@ -79,21 +85,25 @@ pub trait NewPrimValues {
 }
 
 /// Z3Solver 是一个封装了 Z3 的求解器的结构体
-pub struct Z3Solver<'ctx, Identifier: VarIndex + Clone + Eq + Hash> {
+pub struct Z3Solver<'ctx, Identifier: VarIndex + Clone + Eq + Hash,
+    PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug + NewPrimValues,
+> {
     ctx: &'ctx Context,
     solver: z3::Solver<'ctx>,
     synth_fun: Option<z3::RecFuncDecl<'ctx>>,
     defined_funs: HashMap<Identifier, z3::RecFuncDecl<'ctx>>,
     declared_vars: HashMap<Identifier, z3::ast::Dynamic<'ctx>>,
+    constraints: &'ctx [Constraint<Identifier, PrimValues>],
 }
 
 // TODO: 要把Context里面的 builtin 的函数也加入进来
-impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug> Z3Solver<'ctx, Identifier> {
+impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
+    PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug + NewPrimValues,
+> Z3Solver<'ctx, Identifier, PrimValues> {
     /// 创建一个新的 Z3Solver
     /// 里面已经包含了所有的约束, 但是约束里的 f 是未知的
     /// 你需要传入一个 'ctx 的 Z3 Context
     pub fn new<
-        PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug,
         Types: GetZ3Type<'ctx> + Clone,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>,
@@ -101,45 +111,86 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug> Z3Solver<'ctx, Iden
         define_funs: &[Arc<DefineFun<Identifier, PrimValues, Types, FunctionVar, Context>>],
         declare_vars: &[DeclareVar<Identifier, Types>],
         synth_fun: &SynthFun<Identifier, PrimValues, Types>,
-        constraints: &[Constraint<Identifier, PrimValues>],
+        constraints: &'ctx [Constraint<Identifier, PrimValues>],
         ctx: &'ctx z3::Context,
     ) -> Self {
-        let mut z3_solver: Z3Solver<'ctx, Identifier> = Z3Solver {
+        let mut z3_solver: Z3Solver<'ctx, Identifier, PrimValues> = Z3Solver {
             ctx: ctx,
             solver: z3::Solver::new(ctx),
             synth_fun: None,
             defined_funs: HashMap::new(),
             declared_vars: HashMap::new(),
+            constraints,
         };
 
         // 我只需要先建立一个 Decl 就好了
         let synth_fun_decl = synth_fun.get_z3_decl(&ctx, &z3_solver);
         z3_solver.synth_fun = Some(synth_fun_decl);
-        println!("Solver's Synth Fun: {:#?}", z3_solver.synth_fun);
 
         // TODO: Add builtin functions
         let x = Int::new_const(ctx, "x");
         let y = Int::new_const(ctx, "y");
 
-        let eq_decl = z3::RecFuncDecl::new(ctx, "=", &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)], &z3::Sort::bool(ctx));
-        eq_decl.add_def(
-            &[&x.clone(), &y.clone()],
-            &x.clone()._eq(&y.clone())
+        let eq_decl = z3::RecFuncDecl::new(
+            ctx,
+            "=",
+            &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)],
+            &z3::Sort::bool(ctx),
         );
-        let add_decl = z3::RecFuncDecl::new(ctx, "+", &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)], &z3::Sort::int(ctx));
+        eq_decl.add_def(&[&x.clone(), &y.clone()], &x.clone()._eq(&y.clone()));
+        let add_decl = z3::RecFuncDecl::new(
+            ctx,
+            "+",
+            &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)],
+            &z3::Sort::int(ctx),
+        );
         add_decl.add_def(
             &[&x.clone(), &y.clone()],
-            &Int::add(&ctx,&[&x.clone(), &y.clone()])
+            &Int::add(&ctx, &[&x.clone(), &y.clone()]),
         );
-        let sub_decl = z3::RecFuncDecl::new(ctx, "-", &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)], &z3::Sort::int(ctx));
+        let sub_decl = z3::RecFuncDecl::new(
+            ctx,
+            "-",
+            &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)],
+            &z3::Sort::int(ctx),
+        );
         sub_decl.add_def(
             &[&x.clone(), &y.clone()],
-            &Int::sub(&ctx,&[&x.clone(), &y.clone()])
+            &Int::sub(&ctx, &[&x.clone(), &y.clone()]),
         );
+        let mul_decl = z3::RecFuncDecl::new(
+            ctx,
+            "*",
+            &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)],
+            &z3::Sort::int(ctx),
+        );
+        mul_decl.add_def(
+            &[&x.clone(), &y.clone()],
+            &Int::mul(&ctx, &[&x.clone(), &y.clone()]),
+        );
+        let mod_decl = z3::RecFuncDecl::new(
+            ctx,
+            "mod",
+            &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)],
+            &z3::Sort::int(ctx),
+        );
+        mod_decl.add_def(&[&x.clone(), &y.clone()], &x.clone().rem(&y.clone()));
 
-        z3_solver.defined_funs.insert(Identifier::from_name("=".to_string()), eq_decl);
-        z3_solver.defined_funs.insert(Identifier::from_name("+".to_string()), add_decl);
-        z3_solver.defined_funs.insert(Identifier::from_name("-".to_string()), sub_decl);
+        z3_solver
+            .defined_funs
+            .insert(Identifier::from_name("=".to_string()), eq_decl);
+        z3_solver
+            .defined_funs
+            .insert(Identifier::from_name("+".to_string()), add_decl);
+        z3_solver
+            .defined_funs
+            .insert(Identifier::from_name("-".to_string()), sub_decl);
+        z3_solver
+            .defined_funs
+            .insert(Identifier::from_name("*".to_string()), mul_decl);
+        z3_solver
+            .defined_funs
+            .insert(Identifier::from_name("mod".to_string()), mod_decl);
 
         for defined_fun in define_funs {
             let decl = defined_fun.get_z3_decl(&ctx, &z3_solver);
@@ -148,42 +199,34 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug> Z3Solver<'ctx, Iden
                 .insert(defined_fun.var_index.clone(), decl);
         }
 
-        println!("Solver's Defined Funcs: {:#?}", z3_solver.defined_funs);
-
         for declare_var in declare_vars {
             let z3_decl = declare_var.get_z3_var(&ctx, &z3_solver);
-            z3_solver.declared_vars.insert(declare_var.get_id().clone(), z3_decl);
+            z3_solver
+                .declared_vars
+                .insert(declare_var.get_id().clone(), z3_decl);
         }
-
-        println!("Solver's Declared Vars: {:#?}", z3_solver.declared_vars);
-
-        println!("Solver's Constraint: ");
-        let mut assert = z3::ast::Bool::from_bool(&ctx, true);
-        for constraint in constraints {
-            let z3_constraint = constraint.get_z3_assert(&ctx, &z3_solver);
-            println!("{:#?}", z3_constraint);
-            assert = z3::ast::Bool::and(&ctx, &[&z3_constraint, &assert]);
-        }
-
-        println!("Solver's Assert: {:#?}", assert.not());
-        
-        z3_solver.solver.assert(&assert.not());
 
         z3_solver
     }
 
     /// 传递进来一个已经填充好的 SynthFun，返回一个 SAT or CounterExample
     /// 应该传递进来的是一个 BasicFun
+    /// 返回作为反例的所有输入, 以及不满足的规约
     pub fn get_counterexample<
-        PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug + NewPrimValues,
         Types: GetZ3Type<'ctx> + Clone,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>,
     >(
         &mut self,
         synth_fun: &BasicFun<Identifier, PrimValues, Types, FunctionVar, Context>,
-    ) -> Result<HashMap<Identifier, PrimValues>, String> {
-        self.solver.push(); // 首先进入一个新的作用域
+    ) -> Result<
+        Either<
+            HashMap<Identifier, PrimValues>,
+            String,
+        >,
+        String
+    > {
+        self.solver.reset();
         let args = synth_fun
             .args
             .iter()
@@ -193,7 +236,6 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug> Z3Solver<'ctx, Iden
             })
             .collect::<Vec<_>>();
         let args_ref = args.iter().map(|x| x as &dyn Ast).collect::<Vec<_>>();
-        let args_array = args_ref.as_slice();
         let args_hashmap: HashMap<Identifier, &dyn Ast<'ctx>> = synth_fun
             .args
             .iter()
@@ -201,18 +243,20 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug> Z3Solver<'ctx, Iden
             .map(|((id, _ty), arg)| (id.clone(), *arg)) // Create (Identifier, &dyn Ast<'ctx>)
             .collect();
 
+        
         let synth_fun_expr = synth_fun.get_z3_expr(self.ctx, &args_hashmap, self);
-
-        self.synth_fun
-            .as_ref()
-            .unwrap()
-            .add_def(args_array, &synth_fun_expr);
+        self.synth_fun.as_ref().unwrap().add_def(args_ref.as_slice(), &synth_fun_expr);
+        let mut assert = Bool::from_bool(self.ctx, true);
+        for constraint in self.constraints {
+            let z3_constraint = constraint.get_z3_assert(&self.ctx, &self);
+            assert = Bool::and(&self.ctx, &[&assert, &z3_constraint]);
+        }
+        self.solver.assert(&assert.not());
 
         let res = self.solver.check();
         match res {
             z3::SatResult::Unsat => {
-                self.solver.pop(1);
-                return Err("Synth Function Passed All Constraints".to_string());
+                return Ok(Right("Synth Function Passed All Constraints".to_string()));
             }
             z3::SatResult::Sat => {
                 let model = self.solver.get_model().unwrap();
@@ -223,16 +267,13 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug> Z3Solver<'ctx, Iden
                     let value = z3_value.get_prim_value();
                     result.insert(id.clone(), value);
                 }
-                self.solver.pop(1);
-                return Ok(result);
+                return Ok(Left(result));
             }
             _ => {
-                self.solver.pop(1);
                 return Err("Solver Unknown".to_string());
             }
         }
     }
-
     /// 得到一个函数的定义, 是一个引用
     pub fn get_func_decl(&self, id: &Identifier) -> &z3::RecFuncDecl<'ctx> {
         let func = self.defined_funs.get(id);
@@ -290,20 +331,19 @@ pub fn get_z3_decl_with_type<
 impl<
         'ctx,
         Identifier: VarIndex + Clone + Eq + Hash + Debug,
-        PrimValues: Copy + Debug + Eq + GetZ3Value<'ctx>,
-    > GetZ3Expr<'ctx, Identifier> for Exp<Identifier, PrimValues>
+        PrimValues: Copy + Debug + Eq + GetZ3Value<'ctx> + NewPrimValues,
+    > GetZ3Expr<'ctx, Identifier, PrimValues> for Exp<Identifier, PrimValues>
 {
     /// 暂时先不要考虑会用到前面定义的变量的情况
     fn get_z3_expr(
         &self,
         ctx: &'ctx z3::Context,
         args_map: &HashMap<Identifier, &dyn Ast<'ctx>>,
-        z3_solver: &Z3Solver<'ctx, Identifier>,
+        z3_solver: &Z3Solver<'ctx, Identifier,PrimValues>,
     ) -> Dynamic<'ctx> {
         match self {
             Exp::Value(val) => match val {
                 Terms::PrimValue(pv) => {
-                    println!("Value: {:?}", pv);
                     return pv.get_z3_value(ctx);
                 }
                 Terms::Var(v) => {
@@ -313,7 +353,6 @@ impl<
                             return Dynamic::from_ast(v);
                         }
                         None => {
-                            println!("Variable: {:?}", v);
                             panic!("Variable not found in args_map");
                         }
                     }
@@ -327,9 +366,7 @@ impl<
                     .collect();
                 let z3_args_ref = z3_args.iter().map(|x| x as &dyn Ast).collect::<Vec<_>>();
                 let z3_args_array = z3_args_ref.as_slice();
-                println!("Args for Apply: {:#?}", z3_args_array);
                 let now_func = func.apply(z3_args_array);
-                println!("Apply: {:#?}", func);
                 now_func
             }
         }
@@ -339,15 +376,15 @@ impl<
 impl<
         'ctx,
         Identifier: VarIndex + Clone + Eq + Hash + Debug,
-        PrimValues: Copy + Debug + Eq + GetZ3Value<'ctx>,
-    > GetZ3DeclExpr<'ctx, Identifier> for Exp<Identifier, PrimValues>
+        PrimValues: Copy + Debug + Eq + GetZ3Value<'ctx> + NewPrimValues,
+    > GetZ3DeclExpr<'ctx, Identifier, PrimValues> for Exp<Identifier, PrimValues>
 {
     /// 暂时先不要考虑会用到前面定义的变量的情况
     fn get_z3_decl_expr(
         &self,
         ctx: &'ctx z3::Context,
         args_map: &HashMap<Identifier, &dyn Ast<'ctx>>,
-        z3_solver: &Z3Solver<'ctx, Identifier>,
+        z3_solver: &Z3Solver<'ctx, Identifier, PrimValues>,
     ) -> Dynamic<'ctx> {
         match self {
             Exp::Value(val) => match val {
@@ -361,7 +398,6 @@ impl<
                             return Dynamic::from_ast(*v);
                         }
                         None => {
-                            println!("Variable: {:?}", v);
                             panic!("Variable not found in args_map");
                         }
                     }
@@ -375,9 +411,7 @@ impl<
                     .collect();
                 let z3_args_ref = z3_args.iter().map(|x| x as &dyn Ast).collect::<Vec<_>>();
                 let z3_args_array = z3_args_ref.as_slice();
-                println!("Args for Apply: {:#?}", z3_args_array);
                 let now_func = func.apply(z3_args_array);
-                println!("Apply: {:#?}", func);
                 now_func
             }
         }
@@ -388,18 +422,18 @@ impl<
 impl<
         'ctx,
         Identifier: VarIndex + Clone + Eq + Hash + Debug,
-        PrimValues: Copy + Debug + Eq + GetZ3Value<'ctx>,
+        PrimValues: Copy + Debug + Eq + GetZ3Value<'ctx> + NewPrimValues,
         Types,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues>,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>,
-    > GetZ3Expr<'ctx, Identifier>
+    > GetZ3Expr<'ctx, Identifier, PrimValues>
     for BasicFun<'_, Identifier, PrimValues, Types, FunctionVar, Context>
 {
     fn get_z3_expr(
         &self,
         ctx: &'ctx z3::Context,
         args_map: &HashMap<Identifier, &dyn Ast<'ctx>>,
-        z3_solver: &Z3Solver<'ctx, Identifier>,
+        z3_solver: &Z3Solver<'ctx, Identifier, PrimValues>,
     ) -> Dynamic<'ctx> {
         self.body.get_z3_expr(ctx, args_map, z3_solver)
     }
@@ -408,17 +442,17 @@ impl<
 impl<
         'ctx,
         Identifier: VarIndex + Clone + Eq + Hash + Debug,
-        PrimValues: Copy + Debug + Eq + GetZ3Value<'ctx>,
+        PrimValues: Copy + Debug + Eq + GetZ3Value<'ctx> + NewPrimValues,
         Types: GetZ3Type<'ctx> + Clone,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>,
-    > GetZ3Decl<'ctx, Identifier>
+    > GetZ3Decl<'ctx, Identifier, PrimValues>
     for DefineFun<Identifier, PrimValues, Types, FunctionVar, Context>
 {
     fn get_z3_decl(
         &self,
         ctx: &'ctx z3::Context,
-        z3_solver: &Z3Solver<'ctx, Identifier>,
+        z3_solver: &Z3Solver<'ctx, Identifier, PrimValues>,
     ) -> z3::RecFuncDecl<'ctx> {
         let args_sort: Vec<Sort<'ctx>> = self
             .args
@@ -458,13 +492,15 @@ impl<
 }
 
 /// 把 DeclareVar 转换为 Z3 的变量
-impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug, Types: GetZ3Type<'ctx> + Clone>
-    GetZ3Var<'ctx, Identifier> for DeclareVar<Identifier, Types>
+impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug, Types: GetZ3Type<'ctx> + Clone,
+    PrimValues: Copy + Debug + Eq + GetZ3Value<'ctx> + NewPrimValues,
+>
+    GetZ3Var<'ctx, Identifier, PrimValues> for DeclareVar<Identifier, Types>
 {
     fn get_z3_var(
         &self,
         ctx: &'ctx z3::Context,
-        _z3_solver: &Z3Solver<'ctx, Identifier>,
+        _z3_solver: &Z3Solver<'ctx, Identifier, PrimValues>,
     ) -> Dynamic<'ctx> {
         let ty = self.get_type().get_z3_type(ctx);
         match ty.kind() {
@@ -486,14 +522,14 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug, Types: GetZ3Type<'c
 impl<
         'ctx,
         Identifier: VarIndex + Clone + Eq + Hash + Debug,
-        PrimValue: Copy + Eq + Debug,
+        PrimValue: Copy + Eq + Debug + GetZ3Value<'ctx> + NewPrimValues,
         Types: GetZ3Type<'ctx>,
-    > GetZ3Decl<'ctx, Identifier> for SynthFun<'_, Identifier, PrimValue, Types>
+    > GetZ3Decl<'ctx, Identifier, PrimValue> for SynthFun<Identifier, PrimValue, Types>
 {
     fn get_z3_decl(
         &self,
         context: &'ctx z3::Context,
-        _z3_solver: &Z3Solver<'ctx, Identifier>,
+        _z3_solver: &Z3Solver<'ctx, Identifier, PrimValue>,
     ) -> RecFuncDecl<'ctx> {
         let arg_sorts = self
             .get_args()
@@ -511,13 +547,13 @@ impl<
 impl<
         'ctx,
         Identifier: VarIndex + Clone + Eq + Hash + Debug,
-        PrimValue: Copy + Debug + Eq + GetZ3Value<'ctx>,
-    > GetZ3Assert<'ctx, Identifier> for Constraint<Identifier, PrimValue>
+        PrimValue: Copy + Debug + Eq + GetZ3Value<'ctx> + NewPrimValues,
+    > GetZ3Assert<'ctx, Identifier, PrimValue> for Constraint<Identifier, PrimValue>
 {
     fn get_z3_assert(
         &self,
         ctx: &'ctx z3::Context,
-        z3_solver: &Z3Solver<'ctx, Identifier>,
+        z3_solver: &Z3Solver<'ctx, Identifier, PrimValue>,
     ) -> z3::ast::Bool<'ctx> {
         let assert = self
             .get_body()
