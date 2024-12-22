@@ -134,6 +134,7 @@ pub mod logic {
 
 pub mod scope {
     use std::borrow::Borrow;
+    use std::sync::Arc;
     use std::{collections::HashMap, rc::Rc};
     use std::hash::Hash;
     use std::fmt::Debug;
@@ -179,10 +180,10 @@ pub mod scope {
         pub all_vars: HashMap<Identifier, Types>,
         pub non_function_vars: HashMap<Identifier, Values>,
         pub function_vars: HashMap<Identifier, FunctionVar>,
-        pub parent_scope: Option<Rc<ScopeImpl<Identifier, Types, Values, FunctionVar>>>,
+        pub parent_scope: Option<Arc<ScopeImpl<Identifier, Types, Values, FunctionVar>>>,
     }
     impl <Identifier: Eq + Hash + Clone + Debug, Types: Copy, Values: Copy, FunctionVar: PositionedExecutable<Identifier, Values, Values> + Clone> ScopeImpl<Identifier, Types, Values, FunctionVar> {
-        pub fn new(parent_scope: Option<Rc<ScopeImpl<Identifier, Types, Values, FunctionVar>>>) -> Self {
+        pub fn new(parent_scope: Option<Arc<ScopeImpl<Identifier, Types, Values, FunctionVar>>>) -> Self {
             ScopeImpl {
                 all_vars: HashMap::new(),
                 non_function_vars: HashMap::new(),
@@ -727,6 +728,11 @@ pub mod language {
         }
     }
 
+    pub trait ConstraintPassesValue {
+        /// 标明该结果值是否说明约束通过
+        fn is_pass(&self) -> bool;
+    }
+
     pub struct Constraint<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
         body: Exp<Identifier, PrimValue>,
     }
@@ -741,12 +747,13 @@ pub mod language {
         }
     }
     impl <Identifier: Clone + Eq + Debug + VarIndex + Hash, PrimValue: Copy + Eq + Debug> Constraint<Identifier, PrimValue> {
-        /// 用一个 exp 替代 SynthFun 的对象并在给定的上下文中执行，其实实现有一点低效，没必要让 FunctionVar 建立一个新的 Rc，但是为了简化代码，这里就这样写了
+        /// 用一个 exp 替代 SynthFun 的对象并在给定的上下文中执行该约束，其实实现有一点低效，没必要让 FunctionVar 建立一个新的 Rc，但是为了简化代码，这里就这样写了
         pub fn instantiate_and_execute<
             Types,   
             FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<Identifier, PrimValue, Types, Context>,
             Context: Scope<Identifier, Types, PrimValue, FunctionVar>,
         >(
+            &self,
             fun_to_synth: &SynthFun<Identifier, PrimValue, Types>,
             context: Option<&Context>,
             exp: &Exp<Identifier, PrimValue>,
@@ -761,7 +768,7 @@ pub mod language {
                     args_map(var)
                 }
             };
-            exp.execute(new_args_map)
+            self.body.execute(new_args_map)
         }
     }
 
