@@ -396,7 +396,7 @@ fn dfs_all_non_terminals<'a>(
 }
 
 /// 要求 occurrences_mut_pointer 中的指针指向的是 actual_rule 的 body 的子节点
-fn dfs_one_non_terminal_rule_aux<
+unsafe fn dfs_one_non_terminal_rule_aux<
     Identifier: Eq + Clone + Hash + Debug,
     Values: Eq + Copy + Debug
 >(
@@ -491,16 +491,18 @@ fn dfs_one_non_terminal_rule<
         |(_, ocr)| ocr.len() as i32
     ).sum();
     let mut results = Vec::new();
-    dfs_one_non_terminal_rule_aux(
-        &mut rule_to_modify,
-        candidate_exprs,
-        &mut results,
-        total_size,
-        total_non_terminals_in_rule,
-        &occurrences,
-        occurrences.keys().cloned().peekable(),
-        None
-    );
+    unsafe {
+        dfs_one_non_terminal_rule_aux(
+            &mut rule_to_modify,
+            candidate_exprs,
+            &mut results,
+            total_size,
+            total_non_terminals_in_rule,
+            &occurrences,
+            occurrences.keys().cloned().peekable(),
+            None
+        );
+    }
     results
 
 }
