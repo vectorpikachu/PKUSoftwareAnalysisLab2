@@ -214,11 +214,10 @@ pub mod parser{
     use std::hash::Hash;
     use std::fmt::Debug;
     fn parse_rules<
-        'a,
         Identifier: Debug + AtomParser + VarIndex + Eq + Hash,
         Types: ContextFreeSexpParser + Type + Copy,
         Values: Sized + AtomParser + Copy + Eq + Debug,
-    >(input: &sexp::Sexp) -> Result<(Identifier, Types, Vec<Rule<'a, Identifier, Values>>), String> {
+    >(input: &sexp::Sexp) -> Result<(Identifier, Types, Vec<Rule<Identifier, Values>>), String> {
         match input {
             sexp::Sexp::List(list) => {
                 if list.len() != 3 {
@@ -246,11 +245,10 @@ pub mod parser{
     }
 
     impl<
-        'a,
         Identifier: Sized + AtomParser + VarIndex + Eq + Hash + Debug,
         Values: Sized + AtomParser + Copy + Eq + Debug,
         Types: ContextFreeSexpParser + Type + Copy,
-    > ContextFreeSexpParser for SynthFun<'a, Identifier, Values, Types> {
+    > ContextFreeSexpParser for SynthFun<Identifier, Values, Types> {
         fn parse(input: &sexp::Sexp) -> Result<Self, String> {
             let input = match input {
                 sexp::Sexp::List(inputs) => inputs,
@@ -374,7 +372,7 @@ pub mod rc_function_var_context {
     > {
         SetLogic(LogicTag),
         DefineFun(Arc<DefineFun<'a, Identifier, PrimValues, Types>>),
-        SynthFun(SynthFun<'a, Identifier, PrimValues, Types>),
+        SynthFun(SynthFun<Identifier, PrimValues, Types>),
         DeclareVar(DeclareVar<Identifier, Types>),
         Constraint(Constraint<Identifier, PrimValues>),
         CheckSynth,
