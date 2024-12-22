@@ -4,7 +4,7 @@ pub mod lia {
     use sexp::Error;
     use z3::ast::{Ast, Dynamic};
 
-    use crate::{base::{function::{ExecError, PositionedExecutable}, language::{DefineFun, Exp, SynthFun, Terms, Type}, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}, z3_solver::Z3Solver};
+    use crate::{base::{function::{ExecError, PositionedExecutable}, language::{ConstraintPassesValue, DefineFun, Exp, SynthFun, Terms, Type}, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}, z3_solver::Z3Solver};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum Types {
@@ -35,6 +35,15 @@ pub mod lia {
                     }
                 },
                 sexp::Atom::F(_) => Err("Floats are not supported".to_string())
+            }
+        }
+    }
+
+    impl ConstraintPassesValue for Values {
+        fn is_pass(&self) -> bool {
+            match self {
+                Values::Int(_) => false,
+                Values::Bool(v) => *v
             }
         }
     }

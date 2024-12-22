@@ -475,6 +475,7 @@ pub mod language {
 
     /// 用来声明一个 FunctionVar 可以由一个 BasicFun 生成
     pub trait FromBasicFun<
+        'a,
         Identifier: VarIndex + Clone + Eq + Hash + Debug, 
         PrimValues: Copy + Debug + Eq, 
         Types,
@@ -482,7 +483,7 @@ pub mod language {
     > 
     where Self: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone
     {
-        fn from_basic_fun<'a>(basic_fun: BasicFun<'a, Identifier, PrimValues, Types, Self, Context>) -> Self;
+        fn from_basic_fun(basic_fun: BasicFun<'a, Identifier, PrimValues, Types, Self, Context>) -> Self;
     }
 
     #[derive(Debug)]
@@ -712,6 +713,22 @@ pub mod language {
         fn is_pass(&self) -> bool;
     }
 
+    impl <
+        PrimValues: ConstraintPassesValue,
+        ExecError
+    > ConstraintPassesValue for Result<PrimValues, ExecError> {
+        fn is_pass(&self) -> bool {
+            match self {
+                Ok(v) => {
+                    v.is_pass()
+                }
+                Err(_) => {
+                    false
+                }
+            }
+        }
+    }
+
     pub struct Constraint<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
         body: Exp<Identifier, PrimValue>,
     }
@@ -728,14 +745,15 @@ pub mod language {
     impl <Identifier: Clone + Eq + Debug + VarIndex + Hash, PrimValue: Copy + Eq + Debug> Exp<Identifier, PrimValue> {
         /// 用一个 exp 替代 SynthFun 的对象并在给定的上下文中执行该表达式，其实实现有一点低效，没必要让 FunctionVar 建立一个新的 Rc，但是为了简化代码，这里就这样写了
         pub fn instantiate_and_execute<
+            'a,
             Types,   
-            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<Identifier, PrimValue, Types, Context>,
+            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<'a, Identifier, PrimValue, Types, Context>,
             Context: Scope<Identifier, Types, PrimValue, FunctionVar>,
         >(
             &self,
-            fun_to_synth: &SynthFun<Identifier, PrimValue, Types>,
-            context: Option<&Context>,
-            exp: &Exp<Identifier, PrimValue>,
+            fun_to_synth: &'a SynthFun<Identifier, PrimValue, Types>,
+            context: Option<&'a Context>,
+            exp: &'a Exp<Identifier, PrimValue>,
             args_map: impl Fn(&Identifier) -> Result<Either<PrimValue, FunctionVar>, GetValueError> + Copy,
         ) -> Result<PrimValue, ExecError>
         {

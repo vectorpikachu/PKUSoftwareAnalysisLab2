@@ -359,7 +359,22 @@ pub mod rc_function_var_context {
         }
     }
 
-    use crate::base::{function::{BuiltinFunction, ExecError, PositionedExecutable, VarIndex}, language::{Constraint, DeclareVar, DefineFun as BaseDefineFun, FromBasicFun, SynthFun, Type}, logic::LogicTag};
+    impl<'a,
+        Identifier: VarIndex + Clone + Eq + Hash + Debug,
+        PrimValues: Copy + Debug + Eq,
+        Types,
+        Context: Scope<Identifier, Types, PrimValues, RcFunctionVar<'a, Identifier, PrimValues>>,
+    > FromBasicFun<'a, Identifier, PrimValues, Types, Context> for RcFunctionVar<'a, Identifier, PrimValues>
+{
+    fn from_basic_fun(
+        basic_fun: BasicFun<'a, Identifier, PrimValues, Types, RcFunctionVar<'a, Identifier, PrimValues>, Context>,
+    ) -> Self
+     {
+        RcFunctionVar(Arc::new(basic_fun))
+    } 
+}
+
+    use crate::base::{function::{BuiltinFunction, ExecError, PositionedExecutable, VarIndex}, language::{BasicFun, Constraint, DeclareVar, DefineFun as BaseDefineFun, FromBasicFun, SynthFun, Type}, logic::LogicTag};
     use super::parser::{AtomParser, ContextFreeSexpParser, ContextSexpParser, MutContextSexpParser};
     use crate::base::logic::{Logic, parse_logic_tag};
     use crate::base::scope::{Scope, ScopeImpl};
