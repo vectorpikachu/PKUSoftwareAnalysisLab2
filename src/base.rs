@@ -746,8 +746,8 @@ pub mod language {
             &self.body
         }
     }
-    impl <Identifier: Clone + Eq + Debug + VarIndex + Hash, PrimValue: Copy + Eq + Debug> Constraint<Identifier, PrimValue> {
-        /// 用一个 exp 替代 SynthFun 的对象并在给定的上下文中执行该约束，其实实现有一点低效，没必要让 FunctionVar 建立一个新的 Rc，但是为了简化代码，这里就这样写了
+    impl <Identifier: Clone + Eq + Debug + VarIndex + Hash, PrimValue: Copy + Eq + Debug> Exp<Identifier, PrimValue> {
+        /// 用一个 exp 替代 SynthFun 的对象并在给定的上下文中执行该表达式，其实实现有一点低效，没必要让 FunctionVar 建立一个新的 Rc，但是为了简化代码，这里就这样写了
         pub fn instantiate_and_execute<
             Types,   
             FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<Identifier, PrimValue, Types, Context>,
@@ -768,7 +768,7 @@ pub mod language {
                     args_map(var)
                 }
             };
-            self.body.execute(new_args_map)
+            self.execute(new_args_map)
         }
     }
 
