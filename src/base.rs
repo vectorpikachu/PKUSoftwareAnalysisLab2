@@ -434,7 +434,7 @@ pub mod language {
     //     }
     // }
 
-    fn count_vars_occurrence<
+    pub(crate) fn count_vars_occurrence<
         'a,
         Identifier: Clone + Eq + Hash,
         PrimValues: Copy + Eq,
@@ -467,7 +467,7 @@ pub mod language {
     }
 
     /// 在给定表达式中，将某个变量的一次出现替换为另一个表达式，返回替换后的表达式
-    fn subst_once<Identifier: Clone + Eq, PrimValues: Copy + Eq>(
+    pub(crate) fn subst_once<Identifier: Clone + Eq, PrimValues: Copy + Eq>(
         exp: Exp<Identifier, PrimValues>,
         var: &Identifier,
         replacement: &Exp<Identifier, PrimValues>,
@@ -671,9 +671,9 @@ pub mod language {
 
     
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     /// 一条上下文无关文法中的生成规则
-    pub struct Rule<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
+    pub struct Rule<Identifier: Clone + Eq, PrimValue: Copy + Eq + Clone> {
         body: Exp<Identifier, PrimValue>,
         // counts_of_non_terminal: HashMap<Identifier, usize>,
         // counts_of_non_terminal: OnceCell<HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>>>, 
@@ -785,6 +785,9 @@ pub mod language {
         }
         pub fn get_return_type(&self) -> &Types {
             &self.return_type
+        }
+        pub fn get_all_rules(&self) -> impl Iterator<Item = (&Identifier, &Vec<Rule<Identifier, PrimValue>>)> {
+            self.rules.iter()
         }
         // 为了安全期间，这里不提供 Rule 的可变引用。使用时，可以将每个 Rule 复制一次，在复制的 Rule 上进行操作
         pub fn get_rules(&self, non_terminal: &Identifier) -> Option<&Vec<Rule<Identifier, PrimValue>>> {

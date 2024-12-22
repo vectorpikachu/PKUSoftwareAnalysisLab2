@@ -57,6 +57,15 @@ pub mod lia {
         Add,
         Sub,
         Eq,
+        MUL,
+        MOD,
+        GT,
+        LT,
+        GE,
+        LE,
+        AND,
+        OR,
+        NOT,
     }
     fn omit_error_unless_debug<V, E>(v: Result<V, E>) -> Result<V, E> {
         if cfg!(debug_assertions) {
@@ -98,6 +107,69 @@ pub mod lia {
                         _ => Err(ExecError::TypeMismatch(format!("Expected Int, Int in Eq, got {:?}, {:?}", args[0], args[1])))
                     }
                 }
+                BuiltIn::MOD => {
+                    arg_num_check(&args, 2, "MOD")?;
+                    match (args[0], args[1]) {
+                        (Values::Int(a), Values::Int(b)) => Ok(Values::Int(a % b)),
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Int, Int in MOD, got {:?}, {:?}", args[0], args[1])))
+                    }
+                }
+                BuiltIn::MUL => {
+                    arg_num_check(&args, 2, "MUL")?;
+                    match (args[0], args[1]) {
+                        (Values::Int(a), Values::Int(b)) => Ok(Values::Int(a * b)),
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Int, Int in MUL, got {:?}, {:?}", args[0], args[1])))
+                    }
+                }
+                BuiltIn::GT => {
+                    arg_num_check(&args, 2, "GT")?;
+                    match (args[0], args[1]) {
+                        (Values::Int(a), Values::Int(b)) => Ok(Values::Bool(a > b)),
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Int, Int in GT, got {:?}, {:?}", args[0], args[1])))
+                    }
+                }
+                BuiltIn::LT => {
+                    arg_num_check(&args, 2, "LT")?;
+                    match (args[0], args[1]) {
+                        (Values::Int(a), Values::Int(b)) => Ok(Values::Bool(a < b)),
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Int, Int in LT, got {:?}, {:?}", args[0], args[1])))
+                    }
+                }
+                BuiltIn::GE => {
+                    arg_num_check(&args, 2, "GE")?;
+                    match (args[0], args[1]) {
+                        (Values::Int(a), Values::Int(b)) => Ok(Values::Bool(a >= b)),
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Int, Int in GE, got {:?}, {:?}", args[0], args[1])))
+                    }
+                }
+                BuiltIn::LE => {
+                    arg_num_check(&args, 2, "LE")?;
+                    match (args[0], args[1]) {
+                        (Values::Int(a), Values::Int(b)) => Ok(Values::Bool(a <= b)),
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Int, Int in LE, got {:?}, {:?}", args[0], args[1])))
+                    }
+                }
+                BuiltIn::AND => {
+                    arg_num_check(&args, 2, "AND")?;
+                    match (args[0], args[1]) {
+                        (Values::Bool(a), Values::Bool(b)) => Ok(Values::Bool(a && b)),
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Bool, Bool in AND, got {:?}, {:?}", args[0], args[1])))
+                    }
+                }
+                BuiltIn::OR => {
+                    arg_num_check(&args, 2, "OR")?;
+                    match (args[0], args[1]) {
+                        (Values::Bool(a), Values::Bool(b)) => Ok(Values::Bool(a || b)),
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Bool, Bool in OR, got {:?}, {:?}", args[0], args[1])))
+                    }
+                }
+                BuiltIn::NOT => {
+                    arg_num_check(&args, 1, "NOT")?;
+                    match args[0] {
+                        Values::Bool(a) => Ok(Values::Bool(!a)),
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Bool in NOT, got {:?}", args[0])))
+                    }
+                }
             };
             omit_error_unless_debug(res)
         }
@@ -108,6 +180,15 @@ pub mod lia {
         context.add_and_set_function_var("+".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::Add)));
         context.add_and_set_function_var("-".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::Sub)));
         context.add_and_set_function_var("=".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::Eq)));
+        context.add_and_set_function_var("mod".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::MOD)));
+        context.add_and_set_function_var("*".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::MUL)));
+        context.add_and_set_function_var(">".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::GT)));   
+        context.add_and_set_function_var("<".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::LT)));
+        context.add_and_set_function_var(">=".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::GE)));
+        context.add_and_set_function_var("<=".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::LE)));
+        context.add_and_set_function_var("and".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::AND)));    
+        context.add_and_set_function_var("or".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::OR)));
+        context.add_and_set_function_var("not".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::NOT)));
         context
     }
     fn test_run(input: &Vec<sexp::Sexp>) -> Arc<Context<String, Values, Types>> {
@@ -139,7 +220,7 @@ pub mod lia {
     } 
     #[test]
     fn simple_test() {
-        let code = "((define-fun add ((x Int) (y Int)) Int (+ (+ x 1) y)))";
+        let code = "((define-fun add ((x Int) (y Int)) Int (+ (mod x 2) y)))";
         let input = sexp::parse(code).unwrap();
         match input {
             sexp::Sexp::List(v) => {
@@ -147,7 +228,7 @@ pub mod lia {
                 final_ctx.get_value(&"+".to_string()).unwrap().expect_right("error");
                 let f = final_ctx.get_value(&"add".to_string()).unwrap().expect_right("error");
                 let res = f.execute(&vec![Values::Int(1), Values::Int(2)]).unwrap();
-                assert_eq!(res, Values::Int(4));
+                assert_eq!(res, Values::Int(3));
             },
             _ => panic!("Expected a list")
         }

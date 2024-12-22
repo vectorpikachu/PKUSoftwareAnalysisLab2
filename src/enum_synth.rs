@@ -1,11 +1,16 @@
 //! 实现最基础的枚举合成器
 
+use std::borrow::Borrow;
 use std::env;
 use std::fs;
 use std::sync::Arc;
 
 use z3::Config;
 
+use crate::base::language;
+use crate::base::language::subst_once;
+use crate::base::language::Exp;
+use crate::base::language::Terms;
 use crate::lia_logic::lia;
 use crate::parser::parser::MutContextSexpParser;
 use crate::parser::rc_function_var_context::Command;
@@ -77,14 +82,13 @@ pub fn enum_synth_fun() {
             }
         }
     }
-
+    
     let mut synth_fun = match synth_func {
         Some(s) => {
             s
         }
         None => panic!("No synth function defined"),
     };
-    
 
     let rc_context = Arc::new(ctx);
     for define in defines.clone() {
@@ -93,10 +97,6 @@ pub fn enum_synth_fun() {
             Err(_) => panic!("Error")   // 不应出现
         }
     }
-
-    /*
-     * 如何把 builtin 函数加入? 
-     */
 
     let defines = defines.as_slice();
     let declare_vars = declare_vars.as_slice();
@@ -110,25 +110,75 @@ pub fn enum_synth_fun() {
         &z3_ctx
     );
 
-    // 首先获取所有符合返回值的 终结符
-    let mut terminals = Vec::new();
-    synth_fun.init_counts();
-    // 得到 Start 里面的所有终结符
-    let start_rules = synth_fun.get_rules(&"Start".to_string()).unwrap();
-    for rule in start_rules {
-        if rule.is_terminal() {
-            terminals.push(rule);
+    // 获取所有满足 返回值类型 的非终结符对应的 Rule
+    let mut start_rules = &Vec::new();
+
+    for rule in synth_fun.get_all_rules() {
+        if synth_fun.get_type(&rule.0) == Some(synth_fun.get_return_type()) {
+            start_rules = synth_fun.get_rules(&rule.0).unwrap();
         }
     }
-
-    println!("Terminals: {:#?}", terminals);
-
-    println!("Synthesizing function: {:#?}", solver.get_synth_fun());
-
     
-    // let my_synth_fun = "((define-fun max2 ((x Int) (y Int)) Int (ite (>= x y) x y)))";
-    // let my_exp = sexp::parse(my_synth_fun).unwrap();
-    // let mut parse_exp =Command::<String, lia::Values, lia::Types>::parse(&my_exp, &mut ctx);
+    // 创建一个 queue 用于枚举
+    let mut queue = Vec::new();
+    for rule in start_rules {
+        queue.push(rule.get_body().clone());
+    }
+
+    let mut id = 0;
+    let non_terminal_checker = synth_fun.get_non_terminal_checker();
+
+    // println!("Start enumerating... {:#?}", queue.get(id).unwrap());
+    // let term_map = queue.get_mut(id).unwrap().get_counts(non_terminal_checker);
+    // println!("{:#?}", term_map);
+
+    loop {
+        // 取出 queue 里面的第一个元素
+        let mut current_exp = queue.get(id).unwrap().clone();
+        id += 1;
+        println!("Current exp: {:#?}", &current_exp);
+        let mut non_term = language::count_vars_occurrence(&mut current_exp, &non_terminal_checker);        
+        println!("Non-terminals: {:#?}", &non_term);
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).expect("Failed to read line");  
+
+        if non_term.is_empty() {
+            continue;
+        }
+
+        // 尝试扩展 current_exp
+        for rules in synth_fun.get_all_rules() {
+            if non_term.contains_key(rules.0) {
+                for rule in rules.1.iter() {
+                    // 从 non_term 中取出可变引用
+                    // let rep_loc = &mut non_term.get_mut(rules.0).unwrap()[0];
+                    // let pre_exp = (**rep_loc).clone();
+                    // **rep_loc = rule.get_body().clone();
+                    // println!("Try replacing {:#?} with {:#?}", &pre_exp, &rule.get_body());
+                    // println!("{:#?}", &mut current_exp);
+                }
+            }
+        }
+
+    }
+
+    // println!("Terminals: {:#?}", terminals);
+
+    // for define in defines {
+    //     let my_func = define.get_name();
+    //     if my_func == "mul3mod10" {
+    //         let counterexampleorsat = solver.get_counterexample(&define.to_basic_fun());
+    //         match counterexampleorsat {
+    //             Ok(c) => {
+    //                 println!("Counterexample: {:#?}", c);
+    //             }
+    //             Err(e) => {
+    //                 println!("No counterexample found: {}", e);
+    //             }
+    //         }
+    //     }
+    // }
     
 
 }

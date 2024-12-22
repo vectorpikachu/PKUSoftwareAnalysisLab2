@@ -4,6 +4,7 @@
 (define-fun g ((x Int) (y Int) (z Int)) Int
     (+ (+ x y) z)
 )
+(define-fun mul3mod10 ((x Int)) Int (mod (* x 3) 10))
 
 (synth-fun f ((x Int)) Int
     ((Start Int (

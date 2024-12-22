@@ -4,7 +4,7 @@ use std::{collections::HashMap, fmt::Debug, hash::Hash, result::Result};
 use z3::{self, ast::Ast};
 use z3::{Context, RecFuncDecl, Sort, SortKind};
 
-use z3::ast::{Dynamic, Int};
+use z3::ast::{Bool, Dynamic, Int};
 
 use crate::base::language::{BasicFun, Exp, Terms};
 use crate::base::{
@@ -136,10 +136,69 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug> Z3Solver<'ctx, Iden
             &[&x.clone(), &y.clone()],
             &Int::sub(&ctx,&[&x.clone(), &y.clone()])
         );
+        let mod_decl = z3::RecFuncDecl::new(ctx, "mod", &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)], &z3::Sort::int(ctx));
+        mod_decl.add_def(
+            &[&x.clone(), &y.clone()],
+            &x.clone().modulo(&y.clone())
+        );
+        let mul_decl = z3::RecFuncDecl::new(ctx, "*", &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)], &z3::Sort::int(ctx));
+        mul_decl.add_def(
+            &[&x.clone(), &y.clone()],
+            &Int::mul(&ctx,&[&x.clone(), &y.clone()])
+        );
+        let gt_decl = z3::RecFuncDecl::new(ctx, ">", &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)], &z3::Sort::bool(ctx));
+        gt_decl.add_def(
+            &[&x.clone(), &y.clone()],
+            &x.clone().gt(&y.clone())
+        );
+        let lt_decl = z3::RecFuncDecl::new(ctx, "<", &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)], &z3::Sort::bool(ctx));
+        lt_decl.add_def(
+            &[&x.clone(), &y.clone()],
+            &x.clone().lt(&y.clone())
+        );
+        let ge_decl = z3::RecFuncDecl::new(ctx, ">=", &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)], &z3::Sort::bool(ctx));
+        ge_decl.add_def(
+            &[&x.clone(), &y.clone()],
+            &x.clone().ge(&y.clone())
+        );
+        let le_decl = z3::RecFuncDecl::new(ctx, "<=", &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)], &z3::Sort::bool(ctx));
+        le_decl.add_def(
+            &[&x.clone(), &y.clone()],
+            &x.clone().le(&y.clone())
+        );
 
+        let bool_x = Bool::new_const(ctx, "bool_x");
+        let bool_y = Bool::new_const(ctx, "bool_y"); 
+
+        let and_decl = z3::RecFuncDecl::new(ctx, "and", &[&z3::Sort::bool(ctx), &z3::Sort::bool(ctx)], &z3::Sort::bool(ctx));
+        and_decl.add_def(
+            &[&bool_x.clone(), &bool_y.clone()],
+            &Bool::and(&ctx, &[&bool_x.clone(), &bool_y.clone()])
+        );
+        let or_decl = z3::RecFuncDecl::new(ctx, "or", &[&z3::Sort::bool(ctx), &z3::Sort::bool(ctx)], &z3::Sort::bool(ctx));
+        or_decl.add_def(
+            &[&bool_x.clone(), &bool_y.clone()],
+            &Bool::or(&ctx, &[&bool_x.clone(), &bool_y.clone()])
+        );
+        let not_decl = z3::RecFuncDecl::new(ctx, "not", &[&z3::Sort::bool(ctx)], &z3::Sort::bool(ctx));
+        not_decl.add_def(
+            &[&bool_x.clone()],
+            &bool_x.clone().not()
+        );
+        
         z3_solver.defined_funs.insert(Identifier::from_name("=".to_string()), eq_decl);
         z3_solver.defined_funs.insert(Identifier::from_name("+".to_string()), add_decl);
         z3_solver.defined_funs.insert(Identifier::from_name("-".to_string()), sub_decl);
+        z3_solver.defined_funs.insert(Identifier::from_name("mod".to_string()), mod_decl);
+        z3_solver.defined_funs.insert(Identifier::from_name("*".to_string()), mul_decl);
+        z3_solver.defined_funs.insert(Identifier::from_name(">".to_string()), gt_decl);
+        z3_solver.defined_funs.insert(Identifier::from_name("<".to_string()), lt_decl);
+        z3_solver.defined_funs.insert(Identifier::from_name(">=".to_string()), ge_decl);
+        z3_solver.defined_funs.insert(Identifier::from_name("<=".to_string()), le_decl);
+
+        z3_solver.defined_funs.insert(Identifier::from_name("and".to_string()), and_decl);
+        z3_solver.defined_funs.insert(Identifier::from_name("or".to_string()), or_decl);
+        z3_solver.defined_funs.insert(Identifier::from_name("not".to_string()), not_decl);
 
         for defined_fun in define_funs {
             let decl = defined_fun.get_z3_decl(&ctx, &z3_solver);
@@ -218,6 +277,7 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug> Z3Solver<'ctx, Iden
                 let model = self.solver.get_model().unwrap();
                 let mut result = HashMap::new();
                 for (id, _) in synth_fun.args {
+                    println!("ID: {:#?}", id);
                     let z3_var = self.declared_vars.get(id).unwrap();
                     let z3_value = model.eval(z3_var, true).unwrap();
                     let value = z3_value.get_prim_value();
@@ -488,7 +548,7 @@ impl<
         Identifier: VarIndex + Clone + Eq + Hash + Debug,
         PrimValue: Copy + Eq + Debug,
         Types: GetZ3Type<'ctx>,
-    > GetZ3Decl<'ctx, Identifier> for SynthFun<'_, Identifier, PrimValue, Types>
+    > GetZ3Decl<'ctx, Identifier> for SynthFun<Identifier, PrimValue, Types>
 {
     fn get_z3_decl(
         &self,
