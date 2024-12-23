@@ -221,7 +221,7 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
     let mut declare_vars = Vec::new();
     let mut synth_func = None;
     let mut constraints: Vec<Constraint<String, lia::Values>> = Vec::new();
-    for exp in &sexps[1..] {
+    for exp in sexps {
         let parse_exp = Command::<String, lia::Values, lia::Types>::parse(&exp, &mut ctx);
         match parse_exp {
             Ok(c) => match c {
