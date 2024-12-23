@@ -12,7 +12,8 @@ pub mod function {
     pub enum ExecError {
         VarNotDefinedWhenExec(String),
         VarNotAssignedWhenExec(String),
-        TypeMismatch(String)
+        TypeMismatch(String),
+        DivZero
     }
     /// 无上下文，可按位置执行的函数
     pub trait PositionedExecutable<Var, Terms, ReturnType> {
