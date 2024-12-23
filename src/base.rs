@@ -97,7 +97,7 @@ pub mod logic {
         BV 
     }
     impl LogicTag {
-        fn to_string(&self) -> &'static str {
+        pub fn get_name(&self) -> &'static str {
             match self {
                 LogicTag::LIA => "LIA",
                 LogicTag::BV => "BV"
