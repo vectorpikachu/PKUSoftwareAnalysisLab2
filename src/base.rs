@@ -92,12 +92,12 @@ pub mod logic {
     use sexp::Atom;
 
     // 支持的理论
-    pub(crate) enum LogicTag {
+    pub enum LogicTag {
         LIA,
         BV 
     }
     impl LogicTag {
-        fn to_string(&self) -> &'static str {
+        pub fn get_name(&self) -> &'static str {
             match self {
                 LogicTag::LIA => "LIA",
                 LogicTag::BV => "BV"
@@ -270,7 +270,7 @@ pub mod language {
         fn from_function(args: Vec<Self>, return_type: Self) -> Self;
     }
 
-    #[derive(Debug, PartialEq, Eq, Clone)]
+    #[derive(Debug, PartialEq, Eq, Clone, Hash)]
     pub enum Terms<Var: Clone + Eq, PrimValues: Copy + Eq> {
         Var(Var),
         PrimValue(PrimValues),
@@ -278,7 +278,7 @@ pub mod language {
 
 
     // 由于本次作业似乎不需要，因此这里 Exp 就不带类型了
-    #[derive(Debug, PartialEq, Eq, Clone)]
+    #[derive(Debug, PartialEq, Eq, Clone, Hash)]
     pub enum Exp<Identifier: Clone + Eq, PrimValues: Copy + Eq> {
         Value(Terms<Identifier, PrimValues>),
         Apply(Identifier, Vec<Exp<Identifier, PrimValues>>),   // 注意我们使用的语言中，函数应用中的函数只能是 Identifier
@@ -475,6 +475,7 @@ pub mod language {
 
     /// 用来声明一个 FunctionVar 可以由一个 BasicFun 生成
     pub trait FromBasicFun<
+        'a,
         Identifier: VarIndex + Clone + Eq + Hash + Debug, 
         PrimValues: Copy + Debug + Eq, 
         Types,
@@ -482,7 +483,7 @@ pub mod language {
     > 
     where Self: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone
     {
-        fn from_basic_fun<'a>(basic_fun: BasicFun<'a, Identifier, PrimValues, Types, Self, Context>) -> Self;
+        fn from_basic_fun(basic_fun: BasicFun<'a, Identifier, PrimValues, Types, Self, Context>) -> Self;
     }
 
     #[derive(Debug)]
@@ -570,12 +571,10 @@ pub mod language {
 
     }
 
+    #[derive(Debug, Clone)]
     /// 一条上下文无关文法中的生成规则
     pub struct Rule<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
         body: Exp<Identifier, PrimValue>,
-        // counts_of_non_terminal: HashMap<Identifier, usize>,
-        // counts_of_non_terminal: OnceCell<HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>>>, 
-        // is_terminal: bool,
     } 
     impl <'a, Identifier: Clone + Hash + Eq + Debug, PrimValue: Copy + Eq + Debug> Rule<Identifier, PrimValue> {
         pub fn new(body: Exp<Identifier, PrimValue>) -> Self {
@@ -591,51 +590,18 @@ pub mod language {
         (&'a mut self, contains: F) -> HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>> {
             count_vars_occurrence(&mut self.body, contains)
         }
-        // /// 假设已经初始化好了 counts_of_non_terminal，可以直接获取
-        // pub fn get_counts(&self) -> &HashMap<Identifier, Vec<&'a mut Exp<Identifier, PrimValue>>> {
-        //     self.counts_of_non_terminal.get().unwrap()
-        // }
-        // pub fn is_terminal(&self) -> bool {
-        //     self.get_counts().is_empty()
-        // }
-
         /// 由于信息不足，这里不会检查是否是非终结符，请在调用前确保是非终结符
         /// 同时，每次调用该函数都会搜索一边表达式树，因此高频率的替换建议使用 get_counts 给出的可变引用
         pub fn subst_non_terminal_once(&self, exp: Exp<Identifier, PrimValue>, var: &Identifier, replacement: &Exp<Identifier, PrimValue>) -> Exp<Identifier, PrimValue> {
-            // if cfg!(debug_assertions) {
-            //     if self.get_counts().get(var).is_none() {
-            //         let error: String = format!("Trying to substitute a non-terminal variable: {:?}, all non-terminals: {:?}", var, self.get_counts().keys());
-            //         panic!("{}", error);
-            //     }
-            // }
             subst_once(exp, var, replacement)
         }
-
-        // pub fn get_non_terminal_vars(&self) -> impl Iterator<Item = &Identifier> {
-        //     self.get_counts().keys()
-        // }
-
-        // pub fn get_non_terminal_vars_and_counts(&self) -> impl Iterator<Item = (&Identifier, &Vec<&'a mut Exp<Identifier, PrimValue>>)> {
-        //     self.get_counts().iter()
-        // }
-
-        // pub fn get_mut_non_terminal_vars_and_counts(&mut self) -> impl Iterator<Item = (&Identifier, &mut Vec<&'a mut Exp<Identifier, PrimValue>>)> {
-        //     self.counts_of_non_terminal.get_mut().unwrap().iter_mut()
-        // }
 
         pub fn get_body(&self) -> &Exp<Identifier, PrimValue> {
             &self.body
         }
-
-        // pub fn reset_body(&mut self) {
-        //     for (var, exp_ref) in self.counts_of_non_terminal.get_mut().unwrap() {
-        //         for exp in exp_ref {
-        //             **exp = Exp::Value(Terms::Var(var.clone()));
-        //         }
-        //     }
-        // }
     }
 
+    #[derive(Debug, Clone)]
     /// 注意由于 Rule 中 count 的设计，SynthFun 一旦 init_counts 后就无法移动了，需要谨慎使用
     pub struct SynthFun<Identifier: Clone + Eq, PrimValue: Copy + Eq, Types> {
         /// 函数名
@@ -683,7 +649,7 @@ pub mod language {
         pub fn get_return_type(&self) -> &Types {
             &self.return_type
         }
-        // 为了安全期间，这里不提供 Rule 的可变引用。使用时，可以将每个 Rule 复制一次，在复制的 Rule 上进行操作
+        // 为了安全起见，这里不提供 Rule 的可变引用。使用时，可以将每个 Rule 复制一次，在复制的 Rule 上进行操作
         pub fn get_rules(&self, non_terminal: &Identifier) -> Option<&Vec<Rule<Identifier, PrimValue>>> {
             self.rules.get(non_terminal)
         }
@@ -692,6 +658,20 @@ pub mod language {
         }
         pub fn get_non_terminal_checker(&self) -> (impl Fn(&Identifier) -> bool + Clone + use<'_, Identifier, PrimValue, Types>) {
             |var| self.types_of_non_terminal.contains_key(var)
+        }
+
+        /// 得到当前 这个 id 是否是终结符
+        pub fn is_terminal(&self, id: &Identifier) -> bool {
+            self.types_of_non_terminal.get(id).is_none()
+        }
+        
+        /// 得到当前 rules 中的所有产生式中的表达式
+        pub fn get_all_exp(&self) -> Vec<Exp<Identifier, PrimValue>> {
+            self.rules.keys().flat_map(|id| self.rules.get(id).unwrap().iter().map(|rule| rule.get_body().clone())).collect()
+        }
+
+        pub fn get_all_rules(&self) -> &HashMap<Identifier, Vec<Rule<Identifier, PrimValue>>> {
+            &self.rules
         }
     }
     impl <
@@ -731,6 +711,22 @@ pub mod language {
     pub trait ConstraintPassesValue {
         /// 标明该结果值是否说明约束通过
         fn is_pass(&self) -> bool;
+    }
+
+    impl <
+        PrimValues: ConstraintPassesValue,
+        ExecError
+    > ConstraintPassesValue for Result<PrimValues, ExecError> {
+        fn is_pass(&self) -> bool {
+            match self {
+                Ok(v) => {
+                    v.is_pass()
+                }
+                Err(_) => {
+                    false
+                }
+            }
+        }
     }
 
     pub struct Constraint<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
@@ -774,14 +770,15 @@ pub mod language {
     
         /// 用一个 exp 替代 SynthFun 的对象并在给定的上下文中执行该表达式，其实实现有一点低效，没必要让 FunctionVar 建立一个新的 Rc，但是为了简化代码，这里就这样写了
         pub fn instantiate_and_execute<
+            'a,
             Types,   
-            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<Identifier, PrimValue, Types, Context>,
+            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<'a, Identifier, PrimValue, Types, Context>,
             Context: Scope<Identifier, Types, PrimValue, FunctionVar>,
         >(
             &self,
-            fun_to_synth: &SynthFun<Identifier, PrimValue, Types>,
-            context: Option<&Context>,
-            exp: &Exp<Identifier, PrimValue>,
+            fun_to_synth: &'a SynthFun<Identifier, PrimValue, Types>,
+            context: Option<&'a Context>,
+            exp: &'a Exp<Identifier, PrimValue>,
             args_map: impl Fn(&Identifier) -> Result<Either<PrimValue, FunctionVar>, GetValueError> + Copy,
         ) -> Result<PrimValue, ExecError>
         {
