@@ -7,7 +7,7 @@ pub mod search {
         Arc, OnceLock
     };
     use crate::collect_callings::collect_callings::collect_callings_of_fun;
-    use crate::{base, collect_callings, z3_solver};
+    use crate::{base, collect_callings, parser, z3_solver};
     use crate::base::function::{ExecError, GetValueError, NamedExecutable};
     use crate::base::language::{ConstraintPassesValue, FromBasicFun};
     use base::{
@@ -34,12 +34,14 @@ pub mod search {
     type ExpQueue<Identifier, Values> = scc::Queue<Exp<Identifier, Values>>;
     type CounterExamples<Identifier, Values, Types> = Vec<HashMap<Identifier, (Types, Values)>>;
     type Message<Identifier, Values> = (Identifier, Exp<Identifier, Values>);
+    type FunctionVar<'a, Identifier, Values> = parser::rc_function_var_context::RcFunctionVar<'a, Identifier, Values>;
     fn sync_search<
+        'a,
         Identifier: Eq + Hash + Clone + VarIndex + Debug + Send + Sync + 'static,
         Values: Eq + Copy + Debug + Hash + 'static + Send + Sync + ConstraintPassesValue,
         Types: Eq + Copy + Debug + Send + 'static + Send + Sync,
-        Context: Scope<Identifier, Types, Values, FunctionVar> + Send + Sync + 'static,
-        FunctionVar
+        Context: Scope<Identifier, Types, Values, FunctionVar<'a, Identifier, Values>> + Send + Sync + 'static,
+        // FunctionVar
     > (
         synth_fun: &SynthFun<Identifier, Values, Types>,
         constraints: &Vec<Constraint<Identifier, Values>>,
@@ -47,7 +49,7 @@ pub mod search {
         z3_solver: &z3_solver::Z3Solver<Identifier>,
     ) -> Result<Exp<Identifier, Values>, String> 
     where 
-        for <'a> FunctionVar: PositionedExecutable<Identifier, Values, Values> + FromBasicFun <'a, Identifier, Values, Types, Context> + Copy
+        // for <'a> FunctionVar: PositionedExecutable<Identifier, Values, Values> + FromBasicFun <'a, Identifier, Values, Types, Context> + Copy
     {
         let mut counter_examples: CounterExamples<Identifier, Values, Types> = Vec::new();
         // 收集所有对 f 的调用

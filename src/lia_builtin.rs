@@ -1,5 +1,5 @@
 pub mod lia_builtin{
-    use std::{cell::{OnceCell, RefCell}, collections::HashMap, marker::PhantomData, rc::Rc, sync::Arc};
+    use std::{cell::{OnceCell, RefCell}, collections::HashMap, fmt::Debug, marker::PhantomData, rc::Rc, sync::Arc};
 
     use sexp::Error;
     use z3::ast::{Ast, Dynamic};
@@ -19,14 +19,15 @@ pub mod lia_builtin{
         AND,
         OR,
         NOT,
+        ITE,
     }
-    fn omit_error_unless_debug<V, E>(v: Result<V, E>) -> Result<V, E> {
+    fn omit_error_unless_debug<V, E: Debug>(v: Result<V, E>) -> Result<V, E> {
         if cfg!(debug_assertions) {
             v
         } else {
             match v {
                 Ok(v) => Ok(v),
-                Err(_) => panic!()
+                Err(e) => panic!("{:?}", e),
             }
         }
     }
@@ -124,8 +125,25 @@ pub mod lia_builtin{
                         _ => Err(ExecError::TypeMismatch(format!("Expected Bool in NOT, got {:?}", args[0])))
                     }
                 }
+                BuiltIn::ITE => {
+                    arg_num_check(&args, 3, "ITE")?;
+                    match args[0] {
+                        Values::Bool(b) => {
+                            if b {
+                                Ok(args[1].clone())
+                            } else {
+                                Ok(args[2].clone())
+                            }
+                        }
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Bool in ITE, got {:?}", args[0])))
+                    }
+                }
             };
-            omit_error_unless_debug(res)
+            res
+            // if let Err(ExecError::DivZero) = res {
+            //     return Err(ExecError::DivZero);
+            // }
+            // omit_error_unless_debug(res) // 由于除零问题，这里不能忽略错误
         }
     }
     use parser::rc_function_var_context::Context;
@@ -143,6 +161,7 @@ pub mod lia_builtin{
         context.add_and_set_function_var("and".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::AND)));    
         context.add_and_set_function_var("or".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::OR)));
         context.add_and_set_function_var("not".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::NOT)));
+        context.add_and_set_function_var("ite".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::ITE)));
         context
     }
 }

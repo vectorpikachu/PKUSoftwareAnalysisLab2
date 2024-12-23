@@ -1,4 +1,3 @@
-(
 (set-logic LIA)
 
 (define-fun g ((x Int) (y Int) (z Int)) Int
@@ -30,5 +29,3 @@
 (constraint (= (f 0) 0))
 
 (check-synth)
-
-)

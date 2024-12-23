@@ -2,11 +2,10 @@ pub mod lia {
     use std::{cell::{OnceCell, RefCell}, collections::HashMap, marker::PhantomData, rc::Rc, sync::Arc};
 
     use sexp::Error;
-    use z3::ast::{Ast, Dynamic};
 
     use crate::{base::{function::{ExecError, PositionedExecutable}, language::{ConstraintPassesValue, DefineFun, Exp, SynthFun, Terms, Type}, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}, z3_solver::Z3Solver};
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum Types {
         Int,
         Bool,
@@ -89,7 +88,6 @@ pub mod lia {
             }
         }
         rc_context
-        
     } 
     #[test]
     fn simple_test() {
@@ -121,34 +119,5 @@ pub mod lia {
             body: Exp::Value(Terms::<String, Values>::Var("x".to_string())),
             _phantom: PhantomData::<RcFunctionVar<'_, String, Values>>,
         };
-
-        let mut solver = Z3Solver::new::<Values, Types, RcFunctionVar<String, Values>, Context<String, Values, Types>>(
-            &[Arc::new(define_fun)],
-            &[],
-            &SynthFun::new(
-                "f".to_string(),
-                vec![("x".to_string(), Types::Int)],
-                Types::Int,
-                HashMap::new(),
-                HashMap::new(),
-            ),
-            &[],
-            &ctx,
-        );
-
-        for defined_fun in solver.get_defined_funs().iter() {
-            println!("{:?}", defined_fun);
-            println!("{:?}", defined_fun.1.to_string());
-            
-        }
-
-        println!("{:?}", solver.get_synth_fun());
-
-        let this_solv = solver.get_solver();
-        let res = this_solv.check();
-        println!("{:?}", res);
-        println!("{:?}", this_solv.get_assertions());
-        
     }
-
 }
