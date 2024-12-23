@@ -2,11 +2,10 @@ pub mod lia {
     use std::{cell::{OnceCell, RefCell}, collections::HashMap, marker::PhantomData, rc::Rc, sync::Arc};
 
     use sexp::Error;
-    use z3::ast::{Ast, Dynamic};
 
     use crate::{base::{function::{ExecError, PositionedExecutable}, language::{ConstraintPassesValue, DefineFun, Exp, SynthFun, Terms, Type}, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}, z3_solver::Z3Solver};
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum Types {
         Int,
         Bool,
@@ -62,8 +61,77 @@ pub mod lia {
         }
     }
 
+    impl ToString for Types {
+        fn to_string(&self) -> String {
+            match self {
+                Types::Int => "Int".to_string(),
+                Types::Bool => "Bool".to_string(),
+                Types::Function => "Function".to_string(), // 在 SMT-LIB 中未直接支持，可以做自定义扩展
+            }
+        }
+    }
+    
+    
+    impl ToString for Values {
+        fn to_string(&self) -> String {
+            match self {
+                Values::Int(v) => v.to_string(),
+                Values::Bool(v) => v.to_string(),
+            }
+        }
+    }
+    
+    
+    impl <Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + ToString> ToString
+        for Terms<Identifier, PrimValues>
+    {
+        fn to_string(&self) -> String {
+            match self {
+                Terms::Var(var) => var.to_string(),
+                Terms::PrimValue(value) => value.to_string(),
+            }
+        }
+    }
+    
+    impl<Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + ToString> ToString
+        for Exp<Identifier, PrimValues>
+    {
+        fn to_string(&self) -> String {
+            match self {
+                Exp::Value(term) => term.to_string(),
+                Exp::Apply(func, args) => {
+                    let func_str = func.to_string();
+                    let args_str = args
+                        .iter()
+                        .map(|arg| arg.to_string())
+                        .collect::<Vec<String>>()
+                        .join(" ");
+                    format!("({} {})", func_str, args_str)
+                }
+            }
+        }
+    }
+    
+    impl ToString for SynthFun<String, Values, Types> {
+        fn to_string(&self) -> String {
+            let name = self.get_name();
+            let args = self
+                .get_args()
+                .iter()
+                .map(|(arg_name, arg_type)| format!("({} {})", arg_name, arg_type.to_string()))
+                .collect::<Vec<String>>()
+                .join(" ");
+    
+            format!("(define-fun {} ({}) {} ", name, args, self.get_return_type().to_string())
+        }
+    }
+
     use crate::parser::rc_function_var_context::Context;
     use crate::lia_builtin::lia_builtin::get_empty_context_with_builtin;
+    fn test_lifetime<Context1>(ctx: &Context1) -> &Context1 
+    where for<'a> Context1: Scope<String, Types, Values, RcFunctionVar<'a, String, Values>> {
+        ctx
+    }
     fn test_run(input: &Vec<sexp::Sexp>) -> Arc<Context<String, Values, Types>> {
         let mut context = get_empty_context_with_builtin();
         let mut defines: Vec<_> = Vec::new();
@@ -89,7 +157,6 @@ pub mod lia {
             }
         }
         rc_context
-        
     } 
     #[test]
     fn simple_test() {
@@ -121,34 +188,6 @@ pub mod lia {
             body: Exp::Value(Terms::<String, Values>::Var("x".to_string())),
             _phantom: PhantomData::<RcFunctionVar<'_, String, Values>>,
         };
-
-        let mut solver = Z3Solver::new::<Values, Types, RcFunctionVar<String, Values>, Context<String, Values, Types>>(
-            &[Arc::new(define_fun)],
-            &[],
-            &SynthFun::new(
-                "f".to_string(),
-                vec![("x".to_string(), Types::Int)],
-                Types::Int,
-                HashMap::new(),
-                HashMap::new(),
-            ),
-            &[],
-            &ctx,
-        );
-
-        for defined_fun in solver.get_defined_funs().iter() {
-            println!("{:?}", defined_fun);
-            println!("{:?}", defined_fun.1.to_string());
-            
-        }
-
-        println!("{:?}", solver.get_synth_fun());
-
-        let this_solv = solver.get_solver();
-        let res = this_solv.check();
-        println!("{:?}", res);
-        println!("{:?}", this_solv.get_assertions());
         
     }
-
 }
