@@ -29,15 +29,16 @@ pub mod search {
     type CounterExamples<Identifier, Values, Types> = Vec<HashMap<Identifier, (Types, Values)>>;
     type Message<Identifier, Values> = Exp<Identifier, Values>;
     fn sync_search<
+        'a,
         Identifier: Eq + Hash + Clone + VarIndex + Debug + Send + Sync + 'static,
         Values: Eq + Copy + Debug + Hash + 'static + Send + Sync + ConstraintPassesValue,
         Types: Eq + Copy + Debug + Send + 'static + Send + Sync,
         Context: Scope<Identifier, Types, Values, FunctionVar> + Send + Sync,
-        FunctionVar: PositionedExecutable<Identifier, Values, Values> + FromBasicFun<Identifier, Values, Types, Context>
+        FunctionVar: PositionedExecutable<Identifier, Values, Values> + FromBasicFun<'a, Identifier, Values, Types, Context>
     > (
-        synth_fun: &SynthFun<Identifier, Values, Types>,
+        synth_fun: &'a SynthFun<Identifier, Values, Types>,
         constraints: &Vec<Constraint<Identifier, Values>>,
-        scope: Context
+        scope: &'a Context
     ) -> Result<Exp<Identifier, Values>, String> {
         let mut counter_examples: CounterExamples<Identifier, Values, Types> = Vec::new();
         // 收集所有对 f 的调用
@@ -93,7 +94,7 @@ pub mod search {
                                         for (id, exp) in callings_map_ref {
                                             let res = exp.instantiate_and_execute(
                                                 synth_fun, 
-                                                Some(scope_ref),
+                                                Some(*scope_ref),
                                                 &exp,
                                                 // 这里是因为如果有 f (f 1) 出现，会被整理成 a = f 1, b = f a 这样的形式，因此可能用到前面计算好的结果
                                                 |id| match values_on_each_call_map.get(&id) {
@@ -108,7 +109,7 @@ pub mod search {
                                         }
                                         for constaint in constraints {
                                             let res = constaint.get_body().execute_in_optional_context(
-                                                Some(scope_ref),
+                                                Some(*scope_ref),
                                                 |id| {
                                                     match values_on_each_call_map.get(&id) {
                                                         Some(v) => Ok(Either::Left(*v)),

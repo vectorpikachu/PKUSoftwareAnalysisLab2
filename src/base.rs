@@ -143,10 +143,6 @@ pub mod scope {
     use std::hash::Hash;
     use std::fmt::Debug;
     use either::Either;
-    use std::borrow::Borrow;
-    use std::fmt::Debug;
-    use std::hash::Hash;
-    use std::{collections::HashMap, rc::Rc};
 
     use super::function::{ExecError, GetValueError, NamedExecutable, PositionedExecutable};
     /// 表示当前函数体内的上下文。
@@ -218,7 +214,7 @@ pub mod scope {
         > ScopeImpl<Identifier, Types, Values, FunctionVar>
     {
         pub fn new(
-            parent_scope: Option<Rc<ScopeImpl<Identifier, Types, Values, FunctionVar>>>,
+            parent_scope: Option<Arc<ScopeImpl<Identifier, Types, Values, FunctionVar>>>,
         ) -> Self {
             ScopeImpl {
                 all_vars: HashMap::new(),
@@ -775,9 +771,6 @@ pub mod language {
             self.rules.keys().flat_map(|id| self.rules.get(id).unwrap().iter().map(|rule| rule.get_body().clone())).collect()
         }
 
-        pub fn get_all_rules(&self) -> &HashMap<Identifier, Vec<Rule<Identifier, PrimValue>>> {
-            &self.rules
-        }
     }
     impl <
         Identifier: Clone + Eq + Hash + VarIndex + Debug, 
@@ -847,8 +840,9 @@ pub mod language {
     impl <Identifier: Clone + Eq + Debug + VarIndex + Hash, PrimValue: Copy + Eq + Debug> Exp<Identifier, PrimValue> {
         /// 在指定的上下文中执行该表达式，优先使用 args_map 中的变量
         pub fn execute_in_optional_context<
+            'a,
             Types,   
-            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<Identifier, PrimValue, Types, Context>,
+            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<'a, Identifier, PrimValue, Types, Context>,
             Context: Scope<Identifier, Types, PrimValue, FunctionVar>,
         >(
             &self,

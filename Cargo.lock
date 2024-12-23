@@ -177,14 +177,12 @@ name = "pkusoftwareanalysislab2"
 version = "0.1.0"
 dependencies = [
  "either",
-<<<<<<< HEAD
- "scc",
-=======
  "rand",
->>>>>>> Eureka
+ "scc",
  "sexp",
  "spmc",
  "z3",
+ "z3-sys",
 ]
 
 [[package]]
