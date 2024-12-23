@@ -25,6 +25,7 @@ use crate::base::language::Exp;
 use crate::base::language::Rule;
 use crate::base::language::SynthFun;
 use crate::base::language::Terms;
+use crate::base::scope::Scope;
 use crate::lia_logic::lia;
 use crate::lia_logic::lia::Types;
 use crate::lia_logic::lia::Values;
@@ -59,7 +60,7 @@ pub fn read_file() -> String {
 
 /// 设计一个枚举合成器
 pub fn enum_synth_fun() -> Either<String, String> {
-    let cmds = read_file();
+    let cmds = "(".to_string() + &read_file() + ")";
     println!("{}", cmds);
     let sexps = sexp::parse(&cmds);
     let sexps = match sexps {
@@ -93,7 +94,7 @@ pub fn enum_synth_fun() -> Either<String, String> {
                     constraints.push(c);
                 }
                 Command::SetLogic(s) => {
-                    println!("Set logic to {}", s.to_string());
+                    println!("Set logic to {}", s.get_name());
                 }
                 _ => {}
             },
@@ -172,6 +173,7 @@ pub fn enum_synth_fun() -> Either<String, String> {
 
                 // TODO: Check here!
                 let mut pass_test = true;
+                ctx.get_value(&"*".to_string()).unwrap().expect_right("error");
                 if !counter_examples.is_empty() {
                     for counter_example in counter_examples.iter() {
                         for constraint in constraints {
@@ -187,7 +189,7 @@ pub fn enum_synth_fun() -> Either<String, String> {
                                     )),
                                 },
                             );
-                            if !passed.is_pass() {
+                            if !passed.unwrap().is_pass() {
                                 pass_test = false;
                                 break;
                             }
@@ -447,17 +449,19 @@ fn dfs_one_non_terminal_rule<
     let total_non_terminals_in_rule: i32 =
         occurrences.iter().map(|(_, ocr)| ocr.len() as i32).sum();
     let mut results = Vec::new();
-    dfs_one_non_terminal_rule_aux(
-        &mut rule_to_modify,
-        candidate_exprs,
-        &mut results,
-        total_size,
-        total_non_terminals_in_rule,
-        &occurrences,
-        occurrences.keys().cloned().peekable(),
-        None,
-        visited_exprs,
-    );
+    unsafe{
+        dfs_one_non_terminal_rule_aux(
+            &mut rule_to_modify,
+            candidate_exprs,
+            &mut results,
+            total_size,
+            total_non_terminals_in_rule,
+            &occurrences,
+            occurrences.keys().cloned().peekable(),
+            None,
+            visited_exprs,
+        );
+    }
     results
 }
 
