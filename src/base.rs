@@ -178,7 +178,7 @@ pub mod scope {
         /// 产生新的子作用域
         fn fork(parent: Arc<Self>) -> Self;
     }
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct ScopeImpl<Identifier, Types, Values, FunctionVar: PositionedExecutable<Identifier, Values, Values>> {
         pub all_vars: HashMap<Identifier, Types>,
         pub non_function_vars: HashMap<Identifier, Values>,
@@ -563,6 +563,7 @@ pub mod language {
         }
     }
 
+    #[derive(Debug, Clone)]
     /// Declare-var
     pub struct DeclareVar<Identifier, Types> {
         var_index: Identifier,
@@ -747,6 +748,7 @@ pub mod language {
         }
     }
 
+    #[derive(Debug, Clone)]
     pub struct Constraint<Identifier: Clone + Eq, PrimValue: Copy + Eq> {
         body: Exp<Identifier, PrimValue>,
     }

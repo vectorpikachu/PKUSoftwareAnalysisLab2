@@ -11,6 +11,7 @@ pub mod z3_solver;
 pub mod collect_callings;
 pub mod lia_builtin;
 pub mod enum_synth;
+pub mod z3_builtin_checker;
 
 /// 从命令行读取.sl文件
 pub fn read_file() -> String {

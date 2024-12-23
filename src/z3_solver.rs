@@ -8,6 +8,9 @@ use z3::{Context, RecFuncDecl, Sort, SortKind};
 use z3::ast::{Bool, Dynamic};
 
 use crate::z3_builtin_checker::check_z3_builtin;
+use z3::ast::{Bool, Dynamic};
+
+use crate::z3_builtin_checker::check_z3_builtin;
 
 use crate::base::language::{BasicFun, Exp, Terms, Type};
 use crate::base::{
