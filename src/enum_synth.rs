@@ -7,7 +7,10 @@ use std::collections::HashSet;
 use std::env;
 use std::fmt::Debug;
 use std::fs;
+use std::fs::File;
 use std::hash::Hash;
+use std::io::BufWriter;
+use std::io::Write;
 use std::iter::Peekable;
 use std::rc::Rc;
 
@@ -23,10 +26,15 @@ use crate::base::language::Rule;
 use crate::base::language::SynthFun;
 use crate::base::language::Terms;
 use crate::lia_logic::lia;
+use crate::lia_logic::lia::Types;
 use crate::lia_logic::lia::Values;
 use crate::parser::parser::MutContextSexpParser;
 use crate::parser::rc_function_var_context::Command;
 use crate::z3_solver;
+
+pub trait TransToString {
+    fn trans_to_string(&self) -> String;
+}
 
 /// 从命令行读取.sl文件
 pub fn read_file() -> String {
@@ -50,7 +58,7 @@ pub fn read_file() -> String {
 }
 
 /// 设计一个枚举合成器
-pub fn enum_synth_fun() {
+pub fn enum_synth_fun() -> Either<String, String> {
     let cmds = read_file();
     println!("{}", cmds);
     let sexps = sexp::parse(&cmds);
@@ -118,9 +126,9 @@ pub fn enum_synth_fun() {
         &z3_ctx,
     );
 
-    println!("Synthesizing function: {:#?}", solver.get_synth_fun());
-
     let mut prog_size = 1;
+    // 必须记录所有已经存在的表达式
+    let mut visited_exprs = HashSet::new();
     let mut candidate_exprs: HashMap<i32, HashMap<String, Vec<Exp<String, lia::Values>>>> =
         HashMap::new();
     candidate_exprs.insert(prog_size, HashMap::new());
@@ -134,6 +142,10 @@ pub fn enum_synth_fun() {
             if !check_terminal(&now_expr, &synth_fun) {
                 continue;
             }
+            if visited_exprs.contains(&now_expr) {
+                continue;
+            }
+            visited_exprs.insert(now_expr.clone());
             candidate_exprs
                 .get_mut(&prog_size)
                 .unwrap()
@@ -142,25 +154,7 @@ pub fn enum_synth_fun() {
                 .push(now_expr);
         }
     }
-    println!("Candidate exprs: {:#?}", candidate_exprs);
-
-    let exp = Exp::Apply(
-        "mod".to_string(),
-        vec![
-            Exp::Apply(
-                "*".to_string(),
-                vec![
-                    Exp::Value(Terms::Var("x".to_string())),
-                    Exp::Value(Terms::PrimValue(lia::Values::Int(3))),
-                ],
-            ),
-            Exp::Value(Terms::PrimValue(lia::Values::Int(10))),
-        ],
-    );
-    let prog = synth_fun.exp_to_basic_fun(Some(&ctx), &exp);
-    let ce = solver.get_counterexample(&prog);
-    println!("Counterexample: {:#?}", ce);
-
+    
     let mut counter_examples: Vec<HashMap<String, (lia::Types, lia::Values)>> = Vec::new();
 
     loop {
@@ -170,19 +164,16 @@ pub fn enum_synth_fun() {
             prog_size,
             synth_fun.get_return_type(),
         );
-        println!("Now Candidate exprs: {:#?}", candidate_exprs);
         for expr in now_exprs {
             if check_terminal(&expr, &synth_fun) {
                 let now_prog = synth_fun.exp_to_basic_fun(Some(&ctx), &expr);
-
-                println!("Now Program: {:#?}", expr);
                 // 首先计算是否满足先前返回的反例
                 // 反例是一个 HashMap<String, (Type, Value)>
 
+                // TODO: Check here!
                 let mut pass_test = true;
                 if !counter_examples.is_empty() {
                     for counter_example in counter_examples.iter() {
-                        // 直接传给z3判断
                         for constraint in constraints {
                             let passed = constraint.get_body().instantiate_and_execute(
                                 &synth_fun,
@@ -198,11 +189,15 @@ pub fn enum_synth_fun() {
                             );
                             if !passed.is_pass() {
                                 pass_test = false;
+                                break;
                             }
                         }
                     }
                 }
 
+                // 感觉 instance_and_execute 有问题
+                // TODO: instance_and_execute
+                pass_test = true;
                 if !pass_test {
                     continue;
                 }
@@ -221,12 +216,12 @@ pub fn enum_synth_fun() {
                 match res {
                     Ok(either_val) => match either_val {
                         Left(v) => {
-                            println!("Found counterexample: {:#?}", v);
                             counter_examples.push(v);
                         }
                         Right(e) => {
-                            println!("Successfully Synthesis: {:#?}", e);
-                            return;
+                            println!("The exp satisifies all constraints: {:?}", e);
+                            let res = format!("{}{})", synth_fun.trans_to_string(), expr.trans_to_string());
+                            return Left(res);
                         }
                     },
                     Err(e) => {
@@ -237,12 +232,17 @@ pub fn enum_synth_fun() {
         }
 
         prog_size += 1;
-        break;
-        enumerate_exprs(&synth_fun, &mut candidate_exprs, prog_size);
-        if prog_size > 4 {
+        if prog_size > 10 {
             break;
         }
+        enumerate_exprs(
+            &synth_fun,
+            &mut candidate_exprs,
+            prog_size,
+            &mut visited_exprs,
+        );
     }
+    return Right("No solution found".to_string());
 }
 
 fn check_terminal(
@@ -254,7 +254,18 @@ fn check_terminal(
             Terms::PrimValue(_pv) => true,
             Terms::Var(v) => synth_fun.is_terminal(v),
         },
-        _ => false,
+        Exp::Apply(func, args) => {
+            if synth_fun.is_terminal(func) {
+                for arg in args {
+                    if !check_terminal(arg, synth_fun) {
+                        return false;
+                    }
+                }
+                return true;
+            } else {
+                return false;
+            }
+        }
     }
 }
 
@@ -268,31 +279,31 @@ fn enumerate_exprs(
     synth_fun: &SynthFun<String, lia::Values, lia::Types>,
     candidate_exprs: &mut HashMap<i32, HashMap<String, Vec<Exp<String, lia::Values>>>>,
     prog_size: i32,
+    visited_exprs: &mut HashSet<Exp<String, lia::Values>>,
 ) {
+    let non_terminals = synth_fun
+        .get_all_rules()
+        .keys()
+        .map(|x| x.clone())
+        .collect::<HashSet<_>>();
+
     for id_rules in synth_fun.get_all_rules() {
         let id = id_rules.0;
         let rules = id_rules.1;
         for rule in rules {
-            let mut actual_rule = rule.clone();
-            let non_terminals = actual_rule.get_counts(
-                synth_fun.get_non_terminal_checker()
+            let result = dfs_one_non_terminal_rule(
+                rule,
+                &non_terminals,
+                candidate_exprs,
+                prog_size,
+                visited_exprs,
             );
-            let non_terminal_vecs = non_terminals.iter().map(|x| x.0.clone()).collect::<Vec<_>>();
-            let mut result = HashMap::new(); 
-
-            let mut actual_rule = rule.clone();
-            dfs_all_non_terminals(
-                &mut actual_rule, 
-                &non_terminal_vecs, 
-                &non_terminals, 
-                candidate_exprs, 
-                "Start".to_string(), 
-                0, 
-                prog_size, 
-                prog_size, 
-                id.clone(), 
-                &mut result);
-
+            candidate_exprs
+                .entry(prog_size)
+                .or_insert(HashMap::new())
+                .entry(id.clone())
+                .or_insert(Vec::new())
+                .extend(result);
         }
     }
 }
@@ -317,110 +328,41 @@ fn get_availabe_progs(
             availabe_progs.push(exp.clone());
         }
     }
-
     availabe_progs
-}
-
-
-/// 现在比如 有一个 非终结符 `Start`. 
-/// 有一个产生式 `Start -> Start + Start` 
-/// 那么 `non_terminals["Start"] = vec![1, 2]`
-/// 1,2 分别表示 第一个 `Start` 处的引用和第二个处的引用
-/// 那么我们就应该
-/// `(x1, x2)` 中的所有可能拼在一起把引用给 `actual_rule`
-/// 然后得到 `actual_rule.get_body()` 就得到了一个全是终结符的合法程序
-/// 此处应该写一个 DFS 来枚举所有的可能组合
-fn dfs_all_non_terminals<'a>(
-    actual_rule: &'a mut Rule<String, lia::Values>,
-    non_terminal_vecs: &'a Vec<String>,
-    non_terminals: &'a HashMap<String, Vec<&'a mut Exp<String, lia::Values>>>,
-    candidate_exprs: &'a HashMap<i32, HashMap<String, Vec<Exp<String, lia::Values>>>>,
-    cur_non_terminal: String,
-    cur_prog: i32,
-    left_prog_size: i32,
-    total_prog_size: i32,
-    id: String,
-    result: &mut HashMap<String, Vec<Exp<String, lia::Values>>>,
-) {
-    // 剩余的为 0, 必须退出了
-    if left_prog_size == 0 {
-        if let Some(exps) = non_terminals.get(&cur_non_terminal) {
-            if (cur_prog as usize) == exps.len() {
-                // 如果 candidate_exprs[total_prog_size][id]没有的话就新建
-                // 否则直接插入
-                if candidate_exprs.get(&total_prog_size).is_none() {
-                    result.insert(id, vec![actual_rule.get_body().clone()]);
-                } else {
-                    result.get_mut(&cur_non_terminal).unwrap().push(actual_rule.get_body().clone());
-                }
-            }
-        }
-        return;
-    }
-
-    for sz in 1..=left_prog_size {
-        // 剩余的 program 大小为 sz, 那么应该从 candidate_exprs[sz] 中取值
-        // 获取当前的 candidate_exprs[sz][cur_non_terminal]
-        // 然后选择一个, 接着对 (cur_non_terminal, cur_prog)的下一个, left_prog_size - sz递归
-        if let Some(cur_candidates) = candidate_exprs.get(&sz) {
-            if let Some(non_terminal_candidates) = cur_candidates.get(&cur_non_terminal) {
-                for candidate in non_terminal_candidates {
-                    if let Some(exps) = non_terminals.get(&cur_non_terminal) {
-                        if (cur_prog as usize) < exps.len() {
-                            // 修改当前的非终结符引用为候选表达式
-                            exps[cur_prog as usize] = candidate;
-                            
-                            // TODO: 可能我无法解决这里的关于可变引用的部分
-
-                            let next_dfs = get_next(&cur_non_terminal, cur_prog, non_terminals, non_terminal_vecs);
-
-                            // 递归调用，处理下一个非终结符
-                            dfs_all_non_terminals(
-                                actual_rule,
-                                non_terminal_vecs,
-                                non_terminals,
-                                candidate_exprs,
-                                next_dfs.0,
-                                next_dfs.1,
-                                left_prog_size - sz,
-                                total_prog_size,
-                                id.clone(),
-                                result,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// 要求 occurrences_mut_pointer 中的指针指向的是 actual_rule 的 body 的子节点
 fn dfs_one_non_terminal_rule_aux<
     Identifier: Eq + Clone + Hash + Debug,
-    Values: Eq + Copy + Debug
+    Values: Eq + Copy + Debug + Hash,
 >(
     actual_rule: &mut Rule<Identifier, Values>,
     // non_terminals: &HashSet<Identifier>,
     candidate_exprs: &HashMap<i32, HashMap<Identifier, Vec<Exp<Identifier, Values>>>>,
     results: &mut Vec<Exp<Identifier, Values>>,
     remaining_size: i32,
-    remaining_non_terminals: i32,   // 表达式中还余的非终结符个数
+    remaining_non_terminals: i32, // 表达式中还余的非终结符个数
     occurrences_mut_pointer: &HashMap<Identifier, Vec<*mut Exp<Identifier, Values>>>,
     mut identifier_iter: Peekable<impl Iterator<Item = Identifier> + Clone>,
     pointer_iter: Option<std::slice::Iter<*mut Exp<Identifier, Values>>>, // 下一个要修改的是 cur_enum_non_terminal 的哪个引用，为空表示从当前非终结符的第一个引用开始
-){
+    visited_exprs: &mut HashSet<Exp<Identifier, Values>>,
+) {
     if remaining_size == 0 {
         if remaining_non_terminals == 0 {
             // 所有非终结符都替换完毕，将结果加入到 results 中
-            results.push(actual_rule.get_body().clone());
+            let res = actual_rule.get_body().clone();
+            if visited_exprs.contains(&res) {
+                return;
+            }
+            visited_exprs.insert(res.clone());
+            results.push(res);
         }
     }
     let cur_non_terminals = match identifier_iter.peek() {
         Some(id) => id.clone(),
         None => return, // 非终结符已经遍历完成，而 remaining_size 非零，直接返回
     };
-    let cur_occurrences = occurrences_mut_pointer.get(&cur_non_terminals).unwrap(); 
+    let cur_occurrences = occurrences_mut_pointer.get(&cur_non_terminals).unwrap();
     let mut pointer_iter = match pointer_iter {
         Some(iter) => iter,
         None => cur_occurrences.iter(),
@@ -437,12 +379,12 @@ fn dfs_one_non_terminal_rule_aux<
                 remaining_non_terminals,
                 occurrences_mut_pointer,
                 identifier_iter,
-                None
+                None,
+                visited_exprs,
             );
             return;
         }
         Some(loc) => loc,
-
     };
     // 否则
     for sz in 1..=remaining_size {
@@ -463,33 +405,47 @@ fn dfs_one_non_terminal_rule_aux<
                         occurrences_mut_pointer,
                         identifier_iter.clone(),
                         Some(pointer_iter.clone()),
+                        visited_exprs,
                     );
                 }
             }
         }
     }
-
 }
 
+/// 现在比如 有一个 非终结符 `Start`.
+/// 有一个产生式 `Start -> Start + Start`
+/// 那么 `non_terminals["Start"] = vec![1, 2]`
+/// 1,2 分别表示 第一个 `Start` 处的引用和第二个处的引用
+/// 那么我们就应该
+/// `(x1, x2)` 中的所有可能拼在一起把引用给 `actual_rule`
+/// 然后得到 `actual_rule.get_body()` 就得到了一个全是终结符的合法程序
+/// 此处应该写一个 DFS 来枚举所有的可能组合
 fn dfs_one_non_terminal_rule<
     Identifier: Eq + Clone + Hash + Debug,
-    Values: Eq + Copy + Debug
+    Values: Eq + Copy + Debug + Hash,
 >(
     rule: &Rule<Identifier, Values>,
     non_terminals: &HashSet<Identifier>,
     candidate_exprs: &HashMap<i32, HashMap<Identifier, Vec<Exp<Identifier, Values>>>>,
     total_size: i32,
-) -> Vec<Exp<Identifier, Values>>
-{
-    let mut rule_to_modify = rule.clone();  // 复制一份进行操作
-    let occurrences = rule_to_modify.get_counts(
-        |id| non_terminals.contains(&id)
-    ).into_iter().map(
-        |(id, ocr)| (id, ocr.into_iter().map(|x| x as *mut Exp<Identifier, Values>).collect())
-    ).collect::<HashMap<Identifier, Vec<*mut Exp<Identifier, Values>>>>();
-    let total_non_terminals_in_rule: i32 = occurrences.iter().map(
-        |(_, ocr)| ocr.len() as i32
-    ).sum();
+    visited_exprs: &mut HashSet<Exp<Identifier, Values>>,
+) -> Vec<Exp<Identifier, Values>> {
+    let mut rule_to_modify = rule.clone(); // 复制一份进行操作
+    let occurrences = rule_to_modify
+        .get_counts(|id| non_terminals.contains(&id))
+        .into_iter()
+        .map(|(id, ocr)| {
+            (
+                id,
+                ocr.into_iter()
+                    .map(|x| x as *mut Exp<Identifier, Values>)
+                    .collect(),
+            )
+        })
+        .collect::<HashMap<Identifier, Vec<*mut Exp<Identifier, Values>>>>();
+    let total_non_terminals_in_rule: i32 =
+        occurrences.iter().map(|(_, ocr)| ocr.len() as i32).sum();
     let mut results = Vec::new();
     dfs_one_non_terminal_rule_aux(
         &mut rule_to_modify,
@@ -499,39 +455,71 @@ fn dfs_one_non_terminal_rule<
         total_non_terminals_in_rule,
         &occurrences,
         occurrences.keys().cloned().peekable(),
-        None
+        None,
+        visited_exprs,
     );
     results
-
 }
 
-fn get_next(
-    cur_non_terminal: &String, 
-    cur_prog: i32, 
-    non_terminals: &HashMap<String, Vec<&mut Exp<String, lia::Values>>>,
-    non_terminal_vecs: &Vec<String>,
-) -> (String, i32) {
-    let now = non_terminals.get(cur_non_terminal).unwrap();
-    
-    let next_non_terminal: String;
-    let next_prog: i32;
-
-    if cur_prog + 1 >= now.len() as i32 {
-        // 获取下一个非终结符
-        let next_index = non_terminal_vecs.iter().position(|x| x == cur_non_terminal)
-            .expect("Current non-terminal not found in the list");
-        if next_index + 1 < non_terminal_vecs.len() {
-            next_non_terminal = non_terminal_vecs[next_index + 1].clone(); // 下一个非终结符
-            next_prog = 0;
-        } else {
-            // 如果已经是最后一个非终结符，返回当前值
-            panic!("No more non-terminals")
+impl TransToString for lia::Types {
+    fn trans_to_string(&self) -> String {
+        match self {
+            Types::Int => "Int".to_string(),
+            Types::Bool => "Bool".to_string(),
+            Types::Function => "Function".to_string(), // 在 SMT-LIB 中未直接支持，可以做自定义扩展
         }
-
-    } else {
-        next_non_terminal = cur_non_terminal.clone();
-        next_prog = cur_prog + 1;
     }
+}
 
-    (next_non_terminal, next_prog)
+impl TransToString for Values {
+    fn trans_to_string(&self) -> String {
+        match self {
+            Values::Int(v) => v.to_string(),
+            Values::Bool(v) => v.to_string(),
+        }
+    }
+}
+
+impl<Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + TransToString> TransToString
+    for Terms<Identifier, PrimValues>
+{
+    fn trans_to_string(&self) -> String {
+        match self {
+            Terms::Var(var) => var.to_string(),
+            Terms::PrimValue(value) => value.trans_to_string(),
+        }
+    }
+}
+
+impl<Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + TransToString> TransToString
+    for Exp<Identifier, PrimValues>
+{
+    fn trans_to_string(&self) -> String {
+        match self {
+            Exp::Value(term) => term.trans_to_string(),
+            Exp::Apply(func, args) => {
+                let func_str = func.to_string();
+                let args_str = args
+                    .iter()
+                    .map(|arg| arg.trans_to_string())
+                    .collect::<Vec<String>>()
+                    .join(" ");
+                format!("({} {})", func_str, args_str)
+            }
+        }
+    }
+}
+
+impl TransToString for SynthFun<String, lia::Values, lia::Types> {
+    fn trans_to_string(&self) -> String {
+        let name = self.get_name();
+        let args = self
+            .get_args()
+            .iter()
+            .map(|(arg_name, arg_type)| format!("({} {})", arg_name, arg_type.trans_to_string()))
+            .collect::<Vec<String>>()
+            .join(" ");
+
+        format!("(define-fun {} ({}) {} ", name, args, self.get_return_type().trans_to_string())
+    }
 }

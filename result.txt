@@ -1,0 +1,1 @@
+(define-fun rec ((x Int) (y Int) (z Int)) Int (* (+ x x) (- y z)))

@@ -7,13 +7,13 @@ use z3::{Context, RecFuncDecl, Sort, SortKind};
 
 use z3::ast::{Bool, Dynamic, Int};
 
-use crate::base::language::{BasicFun, Exp, Terms};
+use crate::base::language::{BasicFun, Exp, Terms, Type};
 use crate::base::{
     function::{PositionedExecutable, VarIndex},
     language::{Constraint, DeclareVar, DefineFun, SynthFun},
     scope::Scope,
 };
-use crate::lia_logic::lia;
+use crate::lia_logic::lia::{self};
 
 pub trait GetZ3Type<'ctx> {
     fn get_z3_type(&self, context: &'ctx Context) -> z3::Sort<'ctx>;
@@ -82,6 +82,10 @@ pub trait GetPrimValue<'ctx, PrimValues: GetZ3Value<'ctx> + Copy + Eq> {
 
 pub trait NewPrimValues {
     fn new(z3_val: &Dynamic) -> Self;
+}
+
+pub trait Z3SortToTypes<Types: Type> {
+    fn to_types(&self) -> Types;
 }
 
 /// Z3Solver 是一个封装了 Z3 的求解器的结构体
@@ -213,7 +217,7 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
     /// 应该传递进来的是一个 BasicFun
     /// 返回作为反例的所有输入, 以及不满足的规约
     pub fn get_counterexample<
-        Types: GetZ3Type<'ctx> + Clone,
+        Types: GetZ3Type<'ctx> + Clone + Type,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>,
     >(
@@ -243,8 +247,7 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
             .map(|((id, _ty), arg)| (id.clone(), *arg)) // Create (Identifier, &dyn Ast<'ctx>)
             .collect();
 
-        
-        let synth_fun_expr = synth_fun.get_z3_expr(self.ctx, &args_hashmap, self);
+        let synth_fun_expr = synth_fun.get_z3_decl_expr(self.ctx, &args_hashmap, self);
         self.synth_fun.as_ref().unwrap().add_def(args_ref.as_slice(), &synth_fun_expr);
         let mut assert = Bool::from_bool(self.ctx, true);
         for constraint in self.constraints {
@@ -261,10 +264,10 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
             z3::SatResult::Sat => {
                 let model = self.solver.get_model().unwrap();
                 let mut result = HashMap::new();
-                for (id, ty) in synth_fun.args {
-                    let z3_var = self.declared_vars.get(id).unwrap();
+                for (id, z3_var) in &self.declared_vars {
                     let z3_value = model.eval(z3_var, true).unwrap();
                     let value = z3_value.get_prim_value();
+                    let ty: Types = z3_var.get_sort().to_types();
                     result.insert(id.clone(), (ty.clone(), value));
                 }
                 return Ok(Left(result));
@@ -443,6 +446,26 @@ impl<
         'ctx,
         Identifier: VarIndex + Clone + Eq + Hash + Debug,
         PrimValues: Copy + Debug + Eq + GetZ3Value<'ctx> + NewPrimValues,
+        Types,
+        FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues>,
+        Context: Scope<Identifier, Types, PrimValues, FunctionVar>,
+    > GetZ3DeclExpr<'ctx, Identifier, PrimValues>
+    for BasicFun<'_, Identifier, PrimValues, Types, FunctionVar, Context>
+{
+    fn get_z3_decl_expr(
+        &self,
+        ctx: &'ctx z3::Context,
+        args_map: &HashMap<Identifier, &dyn Ast<'ctx>>,
+        z3_solver: &Z3Solver<'ctx, Identifier, PrimValues>,
+    ) -> Dynamic<'ctx> {
+        self.body.get_z3_decl_expr(ctx, args_map, z3_solver)
+    }
+}
+
+impl<
+        'ctx,
+        Identifier: VarIndex + Clone + Eq + Hash + Debug,
+        PrimValues: Copy + Debug + Eq + GetZ3Value<'ctx> + NewPrimValues,
         Types: GetZ3Type<'ctx> + Clone,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>,
@@ -608,6 +631,16 @@ impl NewPrimValues for lia::Values {
                     .as_bool()
                     .expect("Expected a boolean"),
             ),
+            _ => panic!("Unsupported sort kind"),
+        }
+    }
+}
+
+impl<Types: Type> Z3SortToTypes<Types> for z3::Sort<'_> {
+    fn to_types(&self) -> Types {
+        match self.kind() {
+            z3::SortKind::Int => Types::from_identifier("Int").unwrap(),
+            z3::SortKind::Bool => Types::from_identifier("Bool").unwrap(),
             _ => panic!("Unsupported sort kind"),
         }
     }
