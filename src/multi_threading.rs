@@ -74,6 +74,7 @@ pub mod search {
                                     let mut pass_test = true;
                                     // 在每组测试中，所有对 f 的调用产生的值
                                     let mut values_on_each_test_and_each_call: Vec<Vec<Values>> = Vec::new();
+                                    let mut scope_with_test_values = Scope
                                     for test in counter_examples_ref {
                                         let mut values_on_each_call_map = HashMap::<Identifier, Values>::new();
                                         // let values_on_each_call_map = callings_map_ref.iter().map(
@@ -92,19 +93,28 @@ pub mod search {
                                         //     }
                                         // ).collect::<HashMap<_, _>>();
                                         for (id, exp) in callings_map_ref {
-                                            let res = exp.instantiate_and_execute(
-                                                synth_fun, 
-                                                Some(*scope_ref),
-                                                &exp,
-                                                // 这里是因为如果有 f (f 1) 出现，会被整理成 a = f 1, b = f a 这样的形式，因此可能用到前面计算好的结果
-                                                |id| match values_on_each_call_map.get(&id) {
-                                                    Some(v) => Ok(Either::Left(*v)),
-                                                    None => match test.get(&id) {
-                                                        Some((_, v)) => Ok(Either::Left(*v)),
-                                                        None => Err(GetValueError::VarNotDefinedWhenGet("Var not defined when get in test conunter examples".to_string()))
-                                                        }
-                                                }
-                                            ).unwrap();
+                                            let args = match exp {
+                                                Exp::Apply(_, args) => args,
+                                                _ => panic!("Callings map should only contain Apply expressions")
+                                            };
+                                            let args_results  
+                                            let res = synth_fun.execute_exp_in_context(
+                                                args,
+                                                Some(*scope_ref), 
+                                                exp);
+                                            // let res = exp.instantiate_and_execute(
+                                            //     synth_fun, 
+                                            //     Some(*scope_ref),
+                                            //     &exp,
+                                            //     // 这里是因为如果有 f (f 1) 出现，会被整理成 a = f 1, b = f a 这样的形式，因此可能用到前面计算好的结果
+                                            //     |id| match values_on_each_call_map.get(&id) {
+                                            //         Some(v) => Ok(Either::Left(*v)),
+                                            //         None => match test.get(&id) {
+                                            //             Some((_, v)) => Ok(Either::Left(*v)),
+                                            //             None => Err(GetValueError::VarNotDefinedWhenGet("Var not defined when get in test conunter examples".to_string()))
+                                            //             }
+                                            //     }
+                                            // ).unwrap();
                                             values_on_each_call_map.insert(id.clone(), res);
                                         }
                                         for constaint in constraints {

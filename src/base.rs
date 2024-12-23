@@ -13,6 +13,7 @@ pub mod function {
         VarNotDefinedWhenExec(String),
         VarNotAssignedWhenExec(String),
         TypeMismatch(String),
+        DivZero
     }
     /// 无上下文，可按位置执行的函数
     pub trait PositionedExecutable<Var, Terms, ReturnType> {
@@ -193,6 +194,8 @@ pub mod scope {
         ) -> Result<ResultType, ExecError> {
             f.execute(|var| self.get_value(var))
         }
+        /// 产生新的子作用域
+        fn fork(parent: Arc<Self>) -> Self;
     }
     #[derive(Debug)]
     pub struct ScopeImpl<
@@ -292,6 +295,9 @@ pub mod scope {
                 self.all_vars.insert(var, var_type);
                 Some(())
             }
+        }
+        fn fork(parent: Arc<Self>) -> Self {
+            ScopeImpl::new(Some(parent))
         }
     }
 }
