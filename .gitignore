@@ -1,3 +1,4 @@
 /target
 /.vscode
 .z3-trace
+result.txt

@@ -19,6 +19,7 @@ use either::Either::Left;
 use either::Either::Right;
 use z3::Config;
 
+use crate::base::function::ExecError;
 use crate::base::function::GetValueError;
 use crate::base::language::ConstraintPassesValue;
 use crate::base::language::Exp;
@@ -190,7 +191,12 @@ pub fn enum_synth_fun() -> Either<String, String> {
                                     )),
                                 },
                             );
-                            if !passed.unwrap().is_pass() {
+                            let is_pass = match passed {
+                                Ok(v) => v.is_pass(),
+                                Err(ExecError::DivZero) => false,
+                                _ => panic!("Error: {:?}", passed),
+                            };
+                            if !is_pass {
                                 pass_test = false;
                                 break;
                             }

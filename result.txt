@@ -1,1 +1,1 @@
-(define-fun rec ((x Int) (y Int) (z Int)) Int (* (+ x x) (- y z)))
+(define-fun f ((x Int)) Int (mod (* x 3) 10))
