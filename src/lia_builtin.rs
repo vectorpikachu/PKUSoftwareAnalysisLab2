@@ -63,14 +63,8 @@ pub mod lia_builtin{
                 BuiltIn::MOD => {
                     arg_num_check(&args, 2, "MOD")?;
                     match (args[0], args[1]) {
-                        (Values::Int(a), Values::Int(b)) =>{
-                            if b != 0 {
-                                Ok(Values::Int(a % b))
-                            } 
-                            else {
-                                Ok(Values::Exception)
-                            }
-                        },
+                        (Values::Int(a), Values::Int(0)) => Err(ExecError::DivZero),
+                        (Values::Int(a), Values::Int(b)) => Ok(Values::Int(a % b)),
                         _ => Err(ExecError::TypeMismatch(format!("Expected Int, Int in MOD, got {:?}, {:?}", args[0], args[1])))
                     }
                 }
