@@ -74,7 +74,7 @@ pub mod search {
                                     let mut pass_test = true;
                                     // 在每组测试中，所有对 f 的调用产生的值
                                     let mut values_on_each_test_and_each_call: Vec<Vec<Values>> = Vec::new();
-                                    let mut scope_with_test_values = Scope
+                                    // let mut scope_with_test_values = Scope
                                     for test in counter_examples_ref {
                                         let mut values_on_each_call_map = HashMap::<Identifier, Values>::new();
                                         // let values_on_each_call_map = callings_map_ref.iter().map(
@@ -97,7 +97,7 @@ pub mod search {
                                                 Exp::Apply(_, args) => args,
                                                 _ => panic!("Callings map should only contain Apply expressions")
                                             };
-                                            let args_results  
+                                            // let args_results  
                                             let res = synth_fun.execute_exp_in_context(
                                                 args,
                                                 Some(*scope_ref), 
