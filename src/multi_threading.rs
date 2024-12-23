@@ -35,7 +35,7 @@ pub mod search {
     type CounterExamples<Identifier, Values, Types> = Vec<HashMap<Identifier, (Types, Values)>>;
     type Message<Identifier, Values> = (Identifier, Exp<Identifier, Values>);
     type FunctionVar<'a, Identifier, Values> = parser::rc_function_var_context::RcFunctionVar<'a, Identifier, Values>;
-    fn sync_search<
+    fn concurrent_search<
         'a,
         Identifier: Eq + Hash + Clone + VarIndex + Debug + Send + Sync + 'static,
         Values: Eq + Copy + Debug + Hash + 'static + Send + Sync + ConstraintPassesValue,
@@ -46,10 +46,9 @@ pub mod search {
         synth_fun: &SynthFun<Identifier, Values, Types>,
         constraints: &Vec<Constraint<Identifier, Values>>,
         scope: Arc<Context>,
-        z3_solver: &z3_solver::Z3Solver<Identifier>,
+        // z3_solver: &z3_solver::Z3Solver<Identifier, Values>,
     ) -> Result<Exp<Identifier, Values>, String> 
     where 
-        // for <'a> FunctionVar: PositionedExecutable<Identifier, Values, Values> + FromBasicFun <'a, Identifier, Values, Types, Context> + Copy
     {
         let mut counter_examples: CounterExamples<Identifier, Values, Types> = Vec::new();
         // 收集所有对 f 的调用
@@ -116,20 +115,37 @@ pub mod search {
                                         //         )
                                         //     }
                                         // ).collect::<HashMap<_, _>>();
-                                        for (id, cal_exp) in callings_map_ref {
-                                            let res = cal_exp.instantiate_and_execute(
-                                                synth_fun, 
-                                                Some(scope_ref), 
-                                                &exp, 
+                                        for (id, call_exp) in callings_map_ref {
+                                            let f_instance = synth_fun.exp_to_basic_fun(Some(scope_arc_ref.clone()), &exp);
+                                            let f_instance = FunctionVar::from_basic_fun(f_instance);
+                                            let res = call_exp.execute_in_optional_context(
+                                                Some(scope_ref),
                                                 |id| {
-                                                    // 这里是因为如果有 f (f 1) 出现，会被整理成 a = f 1, b = f a 这样的形式，因此可能用到前面计算好的结果
-                                                    // or 是短路的，因此优先取 test 中的值
-                                                    match values_on_each_call_map.get(&id).or(test.get(&id).map(|(_, v)| v)) {
-                                                        Some(v) => Ok(Either::Left(*v)),
-                                                        None => Err(GetValueError::VarNotDefinedWhenGet(format!("Var not defined when get in test conunter examples: {:?}", id)))
+                                                    if id == synth_fun.get_name() {
+                                                        Ok(Either::Right(f_instance.clone()))
+                                                    } else {
+                                                        // 这里是因为如果有 f (f 1) 出现，会被整理成 a = f 1, b = f a 这样的形式，因此可能用到前面计算好的结果
+                                                        // or 是短路的，因此优先取 test 中的值
+                                                        match values_on_each_call_map.get(&id).or(test.get(&id).map(|(_, v)| v)) {
+                                                            Some(v) => Ok(Either::Left(*v)),
+                                                            None => Err(GetValueError::VarNotDefinedWhenGet(format!("Var not defined when get in test conunter examples: {:?}", id)))
                                                     }
-                                                }
+                                                    }
+                                                } 
                                             );
+                                            // let res = cal_exp.instantiate_and_execute(
+                                            //     synth_fun, 
+                                            //     Some(scope_ref), 
+                                            //     &exp, 
+                                            //     |id| {
+                                            //         // 这里是因为如果有 f (f 1) 出现，会被整理成 a = f 1, b = f a 这样的形式，因此可能用到前面计算好的结果
+                                            //         // or 是短路的，因此优先取 test 中的值
+                                            //         match values_on_each_call_map.get(&id).or(test.get(&id).map(|(_, v)| v)) {
+                                            //             Some(v) => Ok(Either::Left(*v)),
+                                            //             None => Err(GetValueError::VarNotDefinedWhenGet(format!("Var not defined when get in test conunter examples: {:?}", id)))
+                                            //         }
+                                            //     }
+                                            // );
                                             match res {
                                                 Ok(v) => {
                                                     values_on_each_call_map.insert(id.clone(), v);

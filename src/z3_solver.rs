@@ -382,7 +382,7 @@ impl<
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues>,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>,
     > GetZ3Expr<'ctx, Identifier, PrimValues>
-    for BasicFun<'_, Identifier, PrimValues, Types, FunctionVar, Context>
+    for BasicFun<Identifier, PrimValues, Types, FunctionVar, Context>
 {
     fn get_z3_expr(
         &self,
@@ -402,7 +402,7 @@ impl<
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues>,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>,
     > GetZ3DeclExpr<'ctx, Identifier, PrimValues>
-    for BasicFun<'_, Identifier, PrimValues, Types, FunctionVar, Context>
+    for BasicFun<Identifier, PrimValues, Types, FunctionVar, Context>
 {
     fn get_z3_decl_expr(
         &self,

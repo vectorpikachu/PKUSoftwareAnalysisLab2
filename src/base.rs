@@ -428,31 +428,29 @@ pub mod language {
 
     /// 最基础的 PositionedExecutable 函数，充当临时变量使用
     pub struct BasicFun<
-        'a,
         Identifier: VarIndex + Clone + Eq, 
         PrimValues: Copy + Eq, 
         Types, 
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues>,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>
     > {
-        pub args: &'a Vec<(Identifier, Types)>,
-        pub context: Option<&'a Context>,
-        pub body: &'a Exp<Identifier, PrimValues>,
+        pub args: Vec<(Identifier, Types)>,
+        pub context: Option<Arc<Context>>,
+        pub body: Exp<Identifier, PrimValues>,
         _phantom: PhantomData<FunctionVar>
     }
 
     impl <
-        'a,
         Identifier: VarIndex + Clone + Eq + Hash + Debug, 
         PrimValues: Copy + Debug + Eq, 
         Types,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>
-    > BasicFun<'a, Identifier, PrimValues, Types, FunctionVar, Context> {
+    > BasicFun<Identifier, PrimValues, Types, FunctionVar, Context> {
         pub fn new(
-            args: &'a Vec<(Identifier, Types)>,
-            context: Option<&'a Context>,
-            body: &'a Exp<Identifier, PrimValues>
+            args: Vec<(Identifier, Types)>,
+            context: Option<Arc<Context>>,
+            body: Exp<Identifier, PrimValues>
         ) -> Self {
             BasicFun {
                 args,
@@ -464,13 +462,12 @@ pub mod language {
     }
 
     impl <
-        'a,
         Identifier: VarIndex + Clone + Eq + Hash + Debug, 
         PrimValues: Copy + Debug + Eq, 
         Types,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>
-    > PositionedExecutable<Identifier, PrimValues, PrimValues> for BasicFun<'a, Identifier, PrimValues, Types, FunctionVar, Context> {
+    > PositionedExecutable<Identifier, PrimValues, PrimValues> for BasicFun<Identifier, PrimValues, Types, FunctionVar, Context> {
         /// 注意我们的执行规则是，优先查找本地的参数变量，再在上下文中查找
         fn execute (
             &self, 
@@ -481,7 +478,7 @@ pub mod language {
                 if let Some(value) = vars_dict.get(&var) {
                     Ok(Either::<PrimValues, FunctionVar>::Left(*value))    // 用 EmptyFunctionVar，表示这里不会返回函数变量
                 } else {
-                    match self.context {
+                    match &self.context {
                         None => Err(GetValueError::VarNotDefinedWhenGet(format!("{:?}", var))),
                         Some(ctx) => ctx.get_value(var)
                     }
@@ -493,7 +490,6 @@ pub mod language {
 
     /// 用来声明一个 FunctionVar 可以由一个 BasicFun 生成
     pub trait FromBasicFun<
-        'a,
         Identifier: VarIndex + Clone + Eq + Hash + Debug, 
         PrimValues: Copy + Debug + Eq, 
         Types,
@@ -501,7 +497,7 @@ pub mod language {
     > 
     where Self: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone
     {
-        fn from_basic_fun(basic_fun: BasicFun<'a, Identifier, PrimValues, Types, Self, Context>) -> Self;
+        fn from_basic_fun(basic_fun: BasicFun<Identifier, PrimValues, Types, Self, Context>) -> Self;
     }
 
     #[derive(Debug)]
@@ -523,7 +519,7 @@ pub mod language {
     impl <
         Identifier: VarIndex + Clone + Eq + Hash + Debug, 
         PrimValues: Copy + Debug + Eq, 
-        Types,
+        Types: Clone,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>
     > DefineFun<Identifier, PrimValues, Types, FunctionVar, Context> {
@@ -531,7 +527,7 @@ pub mod language {
             self.var_index.to_name()
         }
         pub fn to_basic_fun(&self) -> BasicFun<Identifier, PrimValues, Types, FunctionVar, Context> {
-            BasicFun::new(&self.args, self.context.get().map(|x| x.borrow()), &self.body)
+            BasicFun::new(self.args.clone(), self.context.get().map(|x| x.clone()), self.body.clone())
         }
     }
 
@@ -539,7 +535,7 @@ pub mod language {
         'a,
         Identifier: VarIndex + Clone + Eq + Hash + Debug, 
         PrimValues: Copy + Debug + Eq, 
-        Types,
+        Types: Clone,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>
     > 
@@ -692,19 +688,18 @@ pub mod language {
     impl <
         Identifier: Clone + Eq + Hash + VarIndex + Debug, 
         PrimValue: Copy + Eq + Debug, 
-        Types,
+        Types: Clone,
     > SynthFun<Identifier, PrimValue, Types> {
         /// 将指定的 exp 视作当前 SynthFun 的 body 并返回一个（临时的） BasicFun
         pub fn exp_to_basic_fun<
-            'b,
             FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone,
             Context: Scope<Identifier, Types, PrimValue, FunctionVar>
         >(
-            &'b self,
-            context: Option<&'b Context>,
-            exp: &'b Exp<Identifier, PrimValue>
-        ) -> BasicFun<'b, Identifier, PrimValue, Types, FunctionVar, Context> {
-            BasicFun::new(&self.args, context, exp)
+            &self,
+            context: Option<Arc<Context>>,
+            exp: &Exp<Identifier, PrimValue>
+        ) -> BasicFun<Identifier, PrimValue, Types, FunctionVar, Context> {
+            BasicFun::new(self.args.clone(), context, exp.clone())
         }
 
         /// 将指定的 exp 视作当前 SynthFun 的 body 并在给定的信息下执行
@@ -714,7 +709,7 @@ pub mod language {
         >(
             &self,
             args: &Vec<PrimValue>,
-            context: Option<&Context>,
+            context: Option<Arc<Context>>,
             exp: &Exp<Identifier, PrimValue>
         ) -> Result<PrimValue, ExecError>
         {
@@ -760,9 +755,8 @@ pub mod language {
     impl <Identifier: Clone + Eq + Debug + VarIndex + Hash, PrimValue: Copy + Eq + Debug> Exp<Identifier, PrimValue> {
         /// 在指定的上下文中执行该表达式，优先使用 args_map 中的变量
         pub fn execute_in_optional_context<
-            'a,
             Types,   
-            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<'a, Identifier, PrimValue, Types, Context>,
+            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<Identifier, PrimValue, Types, Context>,
             Context: Scope<Identifier, Types, PrimValue, FunctionVar>,
         >(
             &self,
@@ -787,26 +781,31 @@ pub mod language {
         /// 用一个 exp 替代 SynthFun 的对象并在给定的上下文中执行该表达式，其实实现有一点低效，没必要让 FunctionVar 建立一个新的 Rc，但是为了简化代码，这里就这样写了
         pub fn instantiate_and_execute<
             'a,
-            Types,   
-            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<'a, Identifier, PrimValue, Types, Context>,
+            Types: Clone,   
+            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<Identifier, PrimValue, Types, Context>,
             Context: Scope<Identifier, Types, PrimValue, FunctionVar>,
         >(
             &self,
             fun_to_synth: &'a SynthFun<Identifier, PrimValue, Types>,
-            context: Option<&'a Context>,
+            context: Option<Arc<Context>>,
             exp: &'a Exp<Identifier, PrimValue>,
             args_map: impl Fn(&Identifier) -> Result<Either<PrimValue, FunctionVar>, GetValueError> + Copy,
         ) -> Result<PrimValue, ExecError>
         {
             let new_args_map = |var: &Identifier| {
+                let ctx = context.clone();
                 if fun_to_synth.get_name() == var {
-                    let temp_func = fun_to_synth.exp_to_basic_fun(context, exp);
+                    let temp_func = fun_to_synth.exp_to_basic_fun(ctx.clone(), exp);
                     Ok(Either::Right(FunctionVar::from_basic_fun(temp_func)))
                 } else {
                     args_map(var)
                 }
             };
-            self.execute_in_optional_context(context, new_args_map)
+            match &context {
+                None => self.execute_in_optional_context(None, new_args_map),
+                Some(ctx) =>
+                    self.execute_in_optional_context(Some(ctx.borrow()), new_args_map)
+            }
         }
     }
 

@@ -63,6 +63,10 @@ pub mod lia {
 
     use crate::parser::rc_function_var_context::Context;
     use crate::lia_builtin::lia_builtin::get_empty_context_with_builtin;
+    fn test_lifetime<Context1>(ctx: &Context1) -> &Context1 
+    where for<'a> Context1: Scope<String, Types, Values, RcFunctionVar<'a, String, Values>> {
+        ctx
+    }
     fn test_run(input: &Vec<sexp::Sexp>) -> Arc<Context<String, Values, Types>> {
         let mut context = get_empty_context_with_builtin();
         let mut defines: Vec<_> = Vec::new();
@@ -119,5 +123,6 @@ pub mod lia {
             body: Exp::Value(Terms::<String, Values>::Var("x".to_string())),
             _phantom: PhantomData::<RcFunctionVar<'_, String, Values>>,
         };
+        
     }
 }

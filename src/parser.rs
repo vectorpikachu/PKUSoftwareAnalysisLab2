@@ -360,14 +360,14 @@ pub mod rc_function_var_context {
     }
 
     impl<'a,
-        Identifier: VarIndex + Clone + Eq + Hash + Debug,
-        PrimValues: Copy + Debug + Eq,
-        Types,
-        Context: Scope<Identifier, Types, PrimValues, RcFunctionVar<'a, Identifier, PrimValues>>,
-    > FromBasicFun<'a, Identifier, PrimValues, Types, Context> for RcFunctionVar<'a, Identifier, PrimValues>
+        Identifier: VarIndex + Clone + Eq + Hash + Debug + 'a,
+        PrimValues: Copy + Debug + Eq + 'a,
+        Types: 'a,
+        Context: Scope<Identifier, Types, PrimValues, RcFunctionVar<'a, Identifier, PrimValues>> + 'a,
+    > FromBasicFun<Identifier, PrimValues, Types, Context> for RcFunctionVar<'a, Identifier, PrimValues>
 {
     fn from_basic_fun(
-        basic_fun: BasicFun<'a, Identifier, PrimValues, Types, RcFunctionVar<'a, Identifier, PrimValues>, Context>,
+        basic_fun: BasicFun<Identifier, PrimValues, Types, RcFunctionVar<'a, Identifier, PrimValues>, Context>,
     ) -> Self
      {
         RcFunctionVar(Arc::new(basic_fun))
