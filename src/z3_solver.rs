@@ -97,10 +97,9 @@ pub struct Z3Solver<'ctx, Identifier: VarIndex + Clone + Eq + Hash,
     synth_fun: Option<z3::RecFuncDecl<'ctx>>,
     defined_funs: HashMap<Identifier, z3::RecFuncDecl<'ctx>>,
     declared_vars: HashMap<Identifier, z3::ast::Dynamic<'ctx>>,
-    constraints: &'ctx [Constraint<Identifier, PrimValues>],
+    constraints: Vec<Constraint<Identifier, PrimValues>>,
 }
 
-// TODO: 要把Context里面的 builtin 的函数也加入进来
 impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
     PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug + NewPrimValues,
 > Z3Solver<'ctx, Identifier, PrimValues> {
@@ -112,10 +111,10 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>,
     >(
-        define_funs: &[Arc<DefineFun<Identifier, PrimValues, Types, FunctionVar, Context>>],
-        declare_vars: &[DeclareVar<Identifier, Types>],
+        define_funs: &Vec<Arc<DefineFun<Identifier, PrimValues, Types, FunctionVar, Context>>>,
+        declare_vars: &Vec<DeclareVar<Identifier, Types>>,
         synth_fun: &SynthFun<Identifier, PrimValues, Types>,
-        constraints: &'ctx [Constraint<Identifier, PrimValues>],
+        constraints: &Vec<Constraint<Identifier, PrimValues>>,
         ctx: &'ctx z3::Context,
     ) -> Self {
         let mut z3_solver: Z3Solver<'ctx, Identifier, PrimValues> = Z3Solver {
@@ -124,8 +123,9 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
             synth_fun: None,
             defined_funs: HashMap::new(),
             declared_vars: HashMap::new(),
-            constraints,
+            constraints: constraints.clone(),
         };
+        z3_solver.solver.reset();
 
         // 我只需要先建立一个 Decl 就好了
         let synth_fun_decl = synth_fun.get_z3_decl(&ctx, &z3_solver);
@@ -185,7 +185,7 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
         let synth_fun_expr = synth_fun.get_z3_decl_expr(self.ctx, &args_hashmap, self);
         self.synth_fun.as_ref().unwrap().add_def(args_ref.as_slice(), &synth_fun_expr);
         let mut assert = Bool::from_bool(self.ctx, true);
-        for constraint in self.constraints {
+        for constraint in self.constraints.clone() {
             let z3_constraint = constraint.get_z3_assert(&self.ctx, &self);
             assert = Bool::and(&self.ctx, &[&assert, &z3_constraint]);
         }

@@ -1,11 +1,11 @@
 //! 实现最基础的枚举合成器
 
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::Peekable;
+use std::mem;
 use std::sync::Arc;
 
 use either::Either;
@@ -13,6 +13,9 @@ use either::Either::Left;
 use either::Either::Right;
 use sexp::Sexp;
 use z3::Config;
+use z3_sys::Z3_mk_config;
+use z3_sys::Z3_mk_context;
+use z3_sys::Z3_context;
 
 use crate::base::function::ExecError;
 use crate::base::function::GetValueError;
@@ -33,7 +36,6 @@ use crate::base::scope::Scope;
 use crate::lia_builtin;
 use crate::lia_logic::lia;
 
-use crate::parser;
 use crate::parser::parser::parse_logic;
 use crate::parser::parser::MutContextSexpParser;
 use crate::parser::rc_function_var_context::Command;
@@ -44,7 +46,7 @@ use crate::z3_solver::NewPrimValues;
 
 /// 设计一个枚举合成器
 pub fn enum_synth_fun(read_file: &str) -> Either<String, String> {
-    let cmds = "(".to_string() + read_file + ")";
+    let cmds = "(\n".to_string() + read_file + "\n)";
     println!("{}", cmds);
     let sexps = sexp::parse(&cmds);
     let sexps = match sexps {
@@ -79,22 +81,29 @@ pub fn enum_synth_fun(read_file: &str) -> Either<String, String> {
     return Right("No solution found".to_string());
 }
 
-fn basic_search<'a,
+
+fn get_z3_ctx_ptr(context: &z3::Context) -> *mut Z3_context {
+    // 使用 unsafe 和 transmute 强制转换为指针类型
+    unsafe { mem::transmute::<&z3::Context, *mut Z3_context>(context) }
+}
+
+fn basic_search<
+    'a,
     Identifier: Eq + Hash + Clone + VarIndex + Debug,
     Values: Eq + Copy + Debug + Hash + ConstraintPassesValue + GetZ3Value<'a> + NewPrimValues,
     Types: Eq + Copy + Debug + Hash + GetZ3Type<'a> + Type,
-    Context: Scope<Identifier, Types, Values, FunctionVar>,
-    FunctionVar: PositionedExecutable<Identifier, Values, Values> + FromBasicFun<'a, Identifier, Values, Types, Context>,
-> (
-    synth_fun: &'a SynthFun<Identifier, Values, Types>,
-    constraints: &'a Vec<Constraint<Identifier, Values>>,
+    Context: Scope<Identifier, Types, Values, FunctionVar> + Clone,
+    FunctionVar: PositionedExecutable<Identifier, Values, Values>
+        + FromBasicFun<Identifier, Values, Types, Context>
+        + Clone,
+>(
+    synth_fun: &SynthFun<Identifier, Values, Types>,
+    constraints: &Vec<Constraint<Identifier, Values>>,
     defines: &Vec<Arc<DefineFun<Identifier, Values, Types, FunctionVar, Context>>>,
-    declare_vars: &'a Vec<DeclareVar<Identifier, Types>>,
-    scope: &'a Context
+    declare_vars: &Vec<DeclareVar<Identifier, Types>>,
+    scope: &Context,
+    z3_ctx: &'a mut z3::Context,
 ) -> Result<Exp<Identifier, Values>, String> {
-    let defines = defines.as_slice();
-    let declare_vars = declare_vars.as_slice();
-    let constraints = constraints.as_slice();
     let mut prog_size = 1;
     // 必须记录所有已经存在的表达式
     let mut visited_exprs = HashSet::new();
@@ -123,8 +132,9 @@ fn basic_search<'a,
                 .push(now_expr);
         }
     }
-    
+
     let mut counter_examples: Vec<HashMap<Identifier, (Types, Values)>> = Vec::new();
+    let arc_context = Arc::new(scope.clone());
 
     loop {
         let now_exprs = get_availabe_progs(
@@ -135,7 +145,7 @@ fn basic_search<'a,
         );
         for expr in now_exprs {
             if check_terminal::<Identifier, Values, Types>(&expr, &synth_fun) {
-                let now_prog = synth_fun.exp_to_basic_fun(Some(scope), &expr);
+                let now_prog = synth_fun.exp_to_basic_fun(Some(arc_context.clone()), &expr);
                 // 首先计算是否满足先前返回的反例
                 // 反例是一个 HashMap<String, (Type, Value)>
 
@@ -145,7 +155,7 @@ fn basic_search<'a,
                         for constraint in constraints {
                             let passed = constraint.get_body().instantiate_and_execute(
                                 &synth_fun,
-                                Some(scope),
+                                Some(Arc::new(scope.clone())),
                                 &expr.clone(),
                                 |id| match counter_example.get(id) {
                                     Some((_, v)) => Ok(Either::Left(*v)),
@@ -172,17 +182,21 @@ fn basic_search<'a,
                     continue;
                 }
 
-                // 由于 ctx 一直保存着之前的, 所以必须重新创建一个新的
-                let z3_ctx = z3::Context::new(&Config::default());
-                let mut solver = z3_solver::Z3Solver::new(
-                    defines,
-                    declare_vars,
-                    &synth_fun,
-                    constraints,
-                    &z3_ctx,
-                );
+               
+               // 直接上指针了
+               // ? 指针！
+               unsafe {
+                  let ptr = get_z3_ctx_ptr(&z3_ctx);
+                  *ptr = Z3_mk_context(Z3_mk_config());
+               };
 
+               let mut solver =
+                    z3_solver::Z3Solver::new(defines, declare_vars, synth_fun, constraints, z3_ctx);
+                
                 let res = solver.get_counterexample(&now_prog);
+
+                println!("res: {:?}", res);
+
                 match res {
                     Ok(either_val) => match either_val {
                         Left(v) => {
@@ -249,18 +263,21 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         None => panic!("No synth function defined"),
     };
 
+    let mut z3_ctx = z3::Context::new(&Config::new());
     let res_exp = basic_search(
-        &synth_fun, 
-        &constraints, 
-        &defines, 
-        &declare_vars, 
-        &ctx);
-    
+        &synth_fun,
+        &constraints,
+        &defines,
+        &declare_vars,
+        &ctx,
+        &mut z3_ctx,
+    );
+
     match res_exp {
         Ok(e) => {
             println!("Found a solution: {}", e.to_string());
             return Left(e.to_string());
-        },
+        }
         Err(e) => {
             println!("Error: {:?}", e);
             return Right(format!("Error: {:?}", e));
@@ -482,7 +499,7 @@ fn dfs_one_non_terminal_rule<
     let total_non_terminals_in_rule: i32 =
         occurrences.iter().map(|(_, ocr)| ocr.len() as i32).sum();
     let mut results = Vec::new();
-    unsafe{
+    unsafe {
         dfs_one_non_terminal_rule_aux(
             &mut rule_to_modify,
             candidate_exprs,
@@ -508,7 +525,6 @@ impl ToString for lia::Types {
     }
 }
 
-
 impl ToString for lia::Values {
     fn to_string(&self) -> String {
         match self {
@@ -518,8 +534,7 @@ impl ToString for lia::Values {
     }
 }
 
-
-impl <Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + ToString> ToString
+impl<Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + ToString> ToString
     for Terms<Identifier, PrimValues>
 {
     fn to_string(&self) -> String {
@@ -559,6 +574,11 @@ impl ToString for SynthFun<String, lia::Values, lia::Types> {
             .collect::<Vec<String>>()
             .join(" ");
 
-        format!("(define-fun {} ({}) {} ", name, args, self.get_return_type().to_string())
+        format!(
+            "(define-fun {} ({}) {} ",
+            name,
+            args,
+            self.get_return_type().to_string()
+        )
     }
 }
