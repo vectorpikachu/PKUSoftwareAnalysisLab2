@@ -84,7 +84,7 @@ fn basic_search<'a,
     Values: Eq + Copy + Debug + Hash + ConstraintPassesValue + GetZ3Value<'a> + NewPrimValues,
     Types: Eq + Copy + Debug + Hash + GetZ3Type<'a> + Type,
     Context: Scope<Identifier, Types, Values, FunctionVar>,
-    FunctionVar: PositionedExecutable<Identifier, Values, Values> + FromBasicFun<'a, Identifier, Values, Types, Context>,
+    FunctionVar: PositionedExecutable<Identifier, Values, Values> + FromBasicFun<Identifier, Values, Types, Context>,
 > (
     synth_fun: &'a SynthFun<Identifier, Values, Types>,
     constraints: &'a Vec<Constraint<Identifier, Values>>,
