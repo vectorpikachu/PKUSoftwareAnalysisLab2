@@ -1,5 +1,5 @@
 pub mod lia_builtin{
-    use std::{cell::{OnceCell, RefCell}, collections::HashMap, marker::PhantomData, rc::Rc, sync::Arc};
+    use std::{cell::{OnceCell, RefCell}, collections::HashMap, fmt::Debug, marker::PhantomData, rc::Rc, sync::Arc};
 
     use sexp::Error;
     use z3::ast::{Ast, Dynamic};
@@ -20,13 +20,13 @@ pub mod lia_builtin{
         OR,
         NOT,
     }
-    fn omit_error_unless_debug<V, E>(v: Result<V, E>) -> Result<V, E> {
+    fn omit_error_unless_debug<V, E: Debug>(v: Result<V, E>) -> Result<V, E> {
         if cfg!(debug_assertions) {
             v
         } else {
             match v {
                 Ok(v) => Ok(v),
-                Err(_) => panic!()
+                Err(e) => panic!("{:?}", e),
             }
         }
     }
@@ -125,7 +125,11 @@ pub mod lia_builtin{
                     }
                 }
             };
-            omit_error_unless_debug(res)
+            res
+            // if let Err(ExecError::DivZero) = res {
+            //     return Err(ExecError::DivZero);
+            // }
+            // omit_error_unless_debug(res) // 由于除零问题，这里不能忽略错误
         }
     }
     use parser::rc_function_var_context::Context;
