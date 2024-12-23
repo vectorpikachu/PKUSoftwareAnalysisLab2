@@ -745,8 +745,9 @@ pub mod language {
     impl <Identifier: Clone + Eq + Debug + VarIndex + Hash, PrimValue: Copy + Eq + Debug> Exp<Identifier, PrimValue> {
         /// 在指定的上下文中执行该表达式，优先使用 args_map 中的变量
         pub fn execute_in_optional_context<
+            'a,
             Types,   
-            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<Identifier, PrimValue, Types, Context>,
+            FunctionVar: PositionedExecutable<Identifier, PrimValue, PrimValue> + Clone + FromBasicFun<'a, Identifier, PrimValue, Types, Context>,
             Context: Scope<Identifier, Types, PrimValue, FunctionVar>,
         >(
             &self,
