@@ -5,7 +5,7 @@ use either::Either::{self, Left, Right};
 use z3::{self, ast::Ast};
 use z3::{Context, RecFuncDecl, Sort, SortKind};
 
-use z3::ast::{Bool, Dynamic, Int};
+use z3::ast::{Bool, Dynamic, BV};
 
 use crate::base::language::{BasicFun, Exp, Terms, Type};
 use crate::base::{
@@ -130,71 +130,6 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
         // 我只需要先建立一个 Decl 就好了
         let synth_fun_decl = synth_fun.get_z3_decl(&ctx, &z3_solver);
         z3_solver.synth_fun = Some(synth_fun_decl);
-
-        // TODO: Add builtin functions
-        let x = Int::new_const(ctx, "x");
-        let y = Int::new_const(ctx, "y");
-
-        let eq_decl = z3::RecFuncDecl::new(
-            ctx,
-            "=",
-            &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)],
-            &z3::Sort::bool(ctx),
-        );
-        eq_decl.add_def(&[&x.clone(), &y.clone()], &x.clone()._eq(&y.clone()));
-        let add_decl = z3::RecFuncDecl::new(
-            ctx,
-            "+",
-            &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)],
-            &z3::Sort::int(ctx),
-        );
-        add_decl.add_def(
-            &[&x.clone(), &y.clone()],
-            &Int::add(&ctx, &[&x.clone(), &y.clone()]),
-        );
-        let sub_decl = z3::RecFuncDecl::new(
-            ctx,
-            "-",
-            &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)],
-            &z3::Sort::int(ctx),
-        );
-        sub_decl.add_def(
-            &[&x.clone(), &y.clone()],
-            &Int::sub(&ctx, &[&x.clone(), &y.clone()]),
-        );
-        let mul_decl = z3::RecFuncDecl::new(
-            ctx,
-            "*",
-            &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)],
-            &z3::Sort::int(ctx),
-        );
-        mul_decl.add_def(
-            &[&x.clone(), &y.clone()],
-            &Int::mul(&ctx, &[&x.clone(), &y.clone()]),
-        );
-        let mod_decl = z3::RecFuncDecl::new(
-            ctx,
-            "mod",
-            &[&z3::Sort::int(ctx), &z3::Sort::int(ctx)],
-            &z3::Sort::int(ctx),
-        );
-        mod_decl.add_def(&[&x.clone(), &y.clone()], &x.clone().rem(&y.clone()));
-
-        z3_solver
-            .defined_funs
-            .insert(Identifier::from_name("=".to_string()), eq_decl);
-        z3_solver
-            .defined_funs
-            .insert(Identifier::from_name("+".to_string()), add_decl);
-        z3_solver
-            .defined_funs
-            .insert(Identifier::from_name("-".to_string()), sub_decl);
-        z3_solver
-            .defined_funs
-            .insert(Identifier::from_name("*".to_string()), mul_decl);
-        z3_solver
-            .defined_funs
-            .insert(Identifier::from_name("mod".to_string()), mod_decl);
 
         for defined_fun in define_funs {
             let decl = defined_fun.get_z3_decl(&ctx, &z3_solver);
@@ -362,13 +297,22 @@ impl<
                 }
             },
             Exp::Apply(f, args) => {
-                let func = z3_solver.get_func_decl(f);
                 let z3_args: Vec<Dynamic> = args
                     .iter()
                     .map(|x| x.get_z3_expr(ctx, args_map, z3_solver))
                     .collect();
+
+                let is_builtin = check_z3_builtin(&z3_args, f.to_name().as_str());
+                match is_builtin {
+                    Ok(res) => {
+                        return res;
+                    }
+                    Err(_) => {}
+                }
+
                 let z3_args_ref = z3_args.iter().map(|x| x as &dyn Ast).collect::<Vec<_>>();
                 let z3_args_array = z3_args_ref.as_slice();
+                let func = z3_solver.get_func_decl(f);
                 let now_func = func.apply(z3_args_array);
                 now_func
             }
@@ -407,13 +351,21 @@ impl<
                 }
             },
             Exp::Apply(f, args) => {
-                let func = z3_solver.get_func_decl(f);
                 let z3_args: Vec<Dynamic> = args
                     .iter()
                     .map(|x| x.get_z3_decl_expr(ctx, args_map, z3_solver))
                     .collect();
+                let is_builtin = check_z3_builtin(&z3_args, f.to_name().as_str());
+                match is_builtin {
+                    Ok(res) => {
+                        return res;
+                    }
+                    Err(_) => {}
+                }
+
                 let z3_args_ref = z3_args.iter().map(|x| x as &dyn Ast).collect::<Vec<_>>();
                 let z3_args_array = z3_args_ref.as_slice();
+                let func = z3_solver.get_func_decl(f);
                 let now_func = func.apply(z3_args_array);
                 now_func
             }
@@ -643,5 +595,182 @@ impl<Types: Type> Z3SortToTypes<Types> for z3::Sort<'_> {
             z3::SortKind::Bool => Types::from_identifier("Bool").unwrap(),
             _ => panic!("Unsupported sort kind"),
         }
+    }
+}
+
+/// 检查当前是否是一个 Z3 的内建函数
+fn check_z3_builtin<'ctx>(
+    args: &Vec<Dynamic<'ctx>>,
+    f: &str,
+) -> Result<Dynamic<'ctx>, String> {
+    match f {
+        "=" => {
+            arg_num_check(args, 2, "=");
+            Ok(args[0]._eq(&args[1]).into())
+        }
+        "+" => {
+            arg_num_check(args, 2, "+");
+            let kind = args[0].get_sort().kind();
+            match kind {
+                SortKind::Int => Ok((args[0].as_int().unwrap() + args[1].as_int().unwrap()).into()),
+                SortKind::BV => Ok((args[0].as_bv().unwrap() + args[1].as_bv().unwrap()).into()),
+                _ => Err(format!("Unsupported type in +: {:?}", kind)),
+            }
+        }
+        "-" => {
+            arg_num_check(args, 2, "-");
+            let kind = args[0].get_sort().kind();
+            match kind {
+                SortKind::Int => Ok((args[0].as_int().unwrap() - args[1].as_int().unwrap()).into()),
+                SortKind::BV => Ok((args[0].as_bv().unwrap() - args[1].as_bv().unwrap()).into()),
+                _ => Err(format!("Unsupported type in -: {:?}", kind)),
+            }
+        }
+        "*" => {
+            arg_num_check(args, 2, "*");
+            let kind = args[0].get_sort().kind();
+            match kind {
+                SortKind::Int => Ok((args[0].as_int().unwrap() * args[1].as_int().unwrap()).into()),
+                SortKind::BV => Ok((args[0].as_bv().unwrap() * args[1].as_bv().unwrap()).into()),
+                _ => Err(format!("Unsupported type in *: {:?}", kind)),
+            }
+        }
+        "mod" => {
+            arg_num_check(args, 2, "mod");
+            let kind = args[0].get_sort().kind();
+            match kind {
+                SortKind::Int => Ok((args[0].as_int().unwrap() % args[1].as_int().unwrap()).into()),
+                SortKind::BV => Ok((args[0].as_bv().unwrap().bvsmod(&args[1].as_bv().unwrap())).into()),
+                _ => Err(format!("Unsupported type in mod: {:?}", kind)),
+            }
+        }
+        "<" => {
+            arg_num_check(args, 2, "<");
+            let kind = args[0].get_sort().kind();
+            match kind {
+                SortKind::Int => Ok((args[0].as_int().unwrap().lt(&args[1].as_int().unwrap())).into()),
+                _ => Err(format!("Unsupported type in <: {:?}", kind)),
+            }
+        }
+        ">" => {
+            arg_num_check(args, 2, ">");
+            let kind = args[0].get_sort().kind();
+            match kind {
+                SortKind::Int => Ok((args[0].as_int().unwrap().gt(&args[1].as_int().unwrap())).into()),
+                _ => Err(format!("Unsupported type in >: {:?}", kind)),
+            }
+        }
+        "<=" => {
+            arg_num_check(args, 2, "<=");
+            let kind = args[0].get_sort().kind();
+            match kind {
+                SortKind::Int => Ok((args[0].as_int().unwrap().le(&args[1].as_int().unwrap())).into()),
+                _ => Err(format!("Unsupported type in <=: {:?}", kind)),
+            }
+        }
+        ">=" => {
+            arg_num_check(args, 2, ">=");
+            let kind = args[0].get_sort().kind();
+            match kind {
+                SortKind::Int => Ok((args[0].as_int().unwrap().ge(&args[1].as_int().unwrap())).into()),
+                _ => Err(format!("Unsupported type in >=: {:?}", kind)),
+            }
+        }
+        "and" => {
+            arg_num_check(args, 2, "and");
+            let kind = args[0].get_sort().kind();
+            match kind {
+                SortKind::Bool => Ok((args[0].as_bool().unwrap() & args[1].as_bool().unwrap()).into()),
+                _ => Err(format!("Unsupported type in and: {:?}", kind)),
+            }
+        }
+        "or" => {
+            arg_num_check(args, 2, "or");
+            let kind = args[0].get_sort().kind();
+            match kind {
+                SortKind::Bool => Ok((args[0].as_bool().unwrap() | args[1].as_bool().unwrap()).into()),
+                _ => Err(format!("Unsupported type in or: {:?}", kind)),
+            }
+        }
+        "not" => {
+            arg_num_check(args, 1, "not");
+            let kind = args[0].get_sort().kind();
+            match kind {
+                SortKind::Bool => Ok(args[0].as_bool().unwrap().not().into()),
+                _ => Err(format!("Unsupported type in not: {:?}", kind)),
+            }
+        }
+        "ite" => {
+            arg_num_check(args, 3, "ite");
+            let kind = args[0].get_sort().kind();
+            if kind != SortKind::Bool {
+                return Err(format!("Expected Bool in ite, got {:?}", kind));
+            }
+            Ok(Bool::ite(&args[0].as_bool().unwrap(), &args[1], &args[2]).into())
+        }
+        _ => Err(format!("Unsupported function: {}", f)),
+    }
+}
+
+
+fn arg_num_check<'ctx>(args: &Vec<Dynamic<'ctx>>, num: usize, func_name: &str) {
+    if args.len() != num {
+        panic!("Expected {} arguments in {}, got {}", num, func_name, args.len());
+    }
+
+    match func_name {
+        "=" => {
+            let arg1_kind = args[0].get_sort().kind();
+            let arg2_kind = args[1].get_sort().kind();
+            if arg1_kind != arg2_kind {
+                panic!("Expected same type in =, got {:?} and {:?}", arg1_kind, arg2_kind);
+            }
+        }
+        "+" | "-" | "*" | "mod" => {
+            let arg1_kind = args[0].get_sort().kind();
+            let arg2_kind = args[1].get_sort().kind();
+            if arg1_kind != arg2_kind {
+                panic!("Expected same type in {}, got {:?} and {:?}", func_name, arg1_kind, arg2_kind);
+            }
+            if arg1_kind != SortKind::Int && arg1_kind != SortKind::BV {
+                panic!("Expected Int or BV in {}, got {:?}", func_name, arg1_kind);
+            }
+        }
+        "<" | ">" | "<=" | ">=" => {
+            let arg1_kind = args[0].get_sort().kind();
+            let arg2_kind = args[1].get_sort().kind();
+            if arg1_kind != arg2_kind {
+                panic!("Expected same type in {}, got {:?} and {:?}", func_name, arg1_kind, arg2_kind);
+            }
+            if arg1_kind != SortKind::Int {
+                panic!("Expected Int in {}, got {:?}", func_name, arg1_kind);
+            }
+        }
+        "and" | "or" => {
+            for arg in args {
+                let arg_kind = arg.get_sort().kind();
+                if arg_kind != SortKind::Bool {
+                    panic!("Expected Bool in {}, got {:?}", func_name, arg_kind);
+                }
+            }
+        }
+        "not" => {
+            let arg_kind = args[0].get_sort().kind();
+            if arg_kind != SortKind::Bool {
+                panic!("Expected Bool in {}, got {:?}", func_name, arg_kind);
+            }
+        }
+        "ite" => {
+            let arg1_kind = args[0].get_sort().kind();
+            if arg1_kind != SortKind::Bool {
+                panic!("Expected Bool in {}, got {:?}", func_name, arg1_kind);
+            }
+            let arg2_kind = args[1].get_sort().kind();
+            let arg3_kind = args[2].get_sort().kind();
+            if arg2_kind != arg3_kind {
+                panic!("Expected same type in {}, got {:?} and {:?}", func_name, arg2_kind, arg3_kind);
+            }
+        }
+        _ => {}
     }
 }

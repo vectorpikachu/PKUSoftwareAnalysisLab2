@@ -1,1 +1,1 @@
-(define-fun f ((x Int)) Int (mod (* x 3) 10))
+(define-fun max2 ((x Int) (y Int)) Int (ite (<= y x) x y))

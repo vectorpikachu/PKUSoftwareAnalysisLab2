@@ -90,7 +90,7 @@ pub mod parser{
         }
     }
 
-    fn parse_logic(input: &sexp::Sexp) -> Result<LogicTag, String> {
+    pub fn parse_logic(input: &sexp::Sexp) -> Result<LogicTag, String> {
         match parse_two_pair(input) {
             (sexp::Sexp::Atom(atom), sexp::Sexp::Atom(tag)) => {
                 if atom == sexp::Atom::S("set-logic".to_string()) {

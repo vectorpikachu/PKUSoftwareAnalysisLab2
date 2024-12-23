@@ -1,68 +1,50 @@
 //! 实现最基础的枚举合成器
 
-use std::cell::Cell;
-use std::cell::RefCell;
+
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::env;
 use std::fmt::Debug;
-use std::fs;
-use std::fs::File;
 use std::hash::Hash;
-use std::io::BufWriter;
-use std::io::Write;
 use std::iter::Peekable;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use either::Either;
 use either::Either::Left;
 use either::Either::Right;
+use sexp::Sexp;
 use z3::Config;
 
 use crate::base::function::ExecError;
 use crate::base::function::GetValueError;
+use crate::base::function::PositionedExecutable;
+use crate::base::function::VarIndex;
+use crate::base::language::Constraint;
 use crate::base::language::ConstraintPassesValue;
+use crate::base::language::DeclareVar;
+use crate::base::language::DefineFun;
 use crate::base::language::Exp;
+use crate::base::language::FromBasicFun;
 use crate::base::language::Rule;
 use crate::base::language::SynthFun;
 use crate::base::language::Terms;
+use crate::base::language::Type;
+use crate::base::logic::LogicTag;
 use crate::base::scope::Scope;
 use crate::lia_builtin;
 use crate::lia_logic::lia;
-use crate::lia_logic::lia::Types;
-use crate::lia_logic::lia::Values;
+
+use crate::parser;
+use crate::parser::parser::parse_logic;
 use crate::parser::parser::MutContextSexpParser;
 use crate::parser::rc_function_var_context::Command;
 use crate::z3_solver;
-
-pub trait TransToString {
-    fn trans_to_string(&self) -> String;
-}
-
-/// 从命令行读取.sl文件
-pub fn read_file() -> String {
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: cargo run -- <file_name>");
-        std::process::exit(1);
-    }
-    let file_name = &args[1];
-    let file_type = file_name.split(".").last().unwrap();
-    if file_type != "sl" {
-        eprintln!("File type error: only .sl file is supported");
-        std::process::exit(1);
-    }
-    fs::read_to_string(file_name)
-        .map_err(|_| {
-            eprintln!("File not found");
-            std::process::exit(1);
-        })
-        .unwrap()
-}
+use crate::z3_solver::GetZ3Type;
+use crate::z3_solver::GetZ3Value;
+use crate::z3_solver::NewPrimValues;
 
 /// 设计一个枚举合成器
-pub fn enum_synth_fun() -> Either<String, String> {
-    let cmds = "(".to_string() + &read_file() + ")";
+pub fn enum_synth_fun(read_file: &str) -> Either<String, String> {
+    let cmds = "(".to_string() + read_file + ")";
     println!("{}", cmds);
     let sexps = sexp::parse(&cmds);
     let sexps = match sexps {
@@ -74,65 +56,49 @@ pub fn enum_synth_fun() -> Either<String, String> {
         _ => panic!("Expected a list"),
     };
     println!("{:#?}", sexps);
-    let mut ctx = lia_builtin::lia_builtin::get_empty_context_with_builtin();
-    let mut defines = Vec::new();
-    let mut declare_vars = Vec::new();
-    let mut synth_func = None;
-    let mut constraints: Vec<crate::base::language::Constraint<String, lia::Values>> = Vec::new();
-    for exp in sexps {
-        let parse_exp = Command::<String, lia::Values, lia::Types>::parse(&exp, &mut ctx);
-        match parse_exp {
-            Ok(c) => match c {
-                Command::DefineFun(d) => {
-                    defines.push(d);
+
+    let logic_result = parse_logic(&sexps[0]);
+
+    match logic_result {
+        Ok(logic_tag) => {
+            match logic_tag {
+                LogicTag::LIA => {
+                    // 调用 LIA 的 enum_synth_for_lia
+                    return enum_synth_for_lia(&sexps[1..]);
                 }
-                Command::DeclareVar(v) => {
-                    declare_vars.push(v);
+                LogicTag::BV => {
+                    // 调用 BV 的 enum_synth_for_bv
                 }
-                Command::SynthFun(s) => {
-                    synth_func = Some(s);
-                }
-                Command::Constraint(c) => {
-                    constraints.push(c);
-                }
-                Command::SetLogic(s) => {
-                    println!("Set logic to {}", s.get_name());
-                }
-                _ => {}
-            },
-            Err(e) => {
-                panic!("Error: {:?}", e);
             }
+        }
+        Err(e) => {
+            panic!("Error: {:?}", e);
         }
     }
 
-    let synth_fun = match synth_func {
-        Some(s) => s,
-        None => panic!("No synth function defined"),
-    };
+    return Right("No solution found".to_string());
+}
 
-    // let rc_context = Arc::new(ctx);
-
-    /*
-     * 如何把 builtin 函数加入?
-     */
-
+fn basic_search<'a,
+    Identifier: Eq + Hash + Clone + VarIndex + Debug,
+    Values: Eq + Copy + Debug + Hash + ConstraintPassesValue + GetZ3Value<'a> + NewPrimValues,
+    Types: Eq + Copy + Debug + Hash + GetZ3Type<'a> + Type,
+    Context: Scope<Identifier, Types, Values, FunctionVar>,
+    FunctionVar: PositionedExecutable<Identifier, Values, Values> + FromBasicFun<'a, Identifier, Values, Types, Context>,
+> (
+    synth_fun: &'a SynthFun<Identifier, Values, Types>,
+    constraints: &'a Vec<Constraint<Identifier, Values>>,
+    defines: &Vec<Arc<DefineFun<Identifier, Values, Types, FunctionVar, Context>>>,
+    declare_vars: &'a Vec<DeclareVar<Identifier, Types>>,
+    scope: &'a Context
+) -> Result<Exp<Identifier, Values>, String> {
     let defines = defines.as_slice();
     let declare_vars = declare_vars.as_slice();
     let constraints = constraints.as_slice();
-    let z3_ctx = z3::Context::new(&Config::default());
-    let mut solver = z3_solver::Z3Solver::new(
-        defines,
-        declare_vars,
-        &synth_fun.clone(),
-        constraints,
-        &z3_ctx,
-    );
-
     let mut prog_size = 1;
     // 必须记录所有已经存在的表达式
     let mut visited_exprs = HashSet::new();
-    let mut candidate_exprs: HashMap<i32, HashMap<String, Vec<Exp<String, lia::Values>>>> =
+    let mut candidate_exprs: HashMap<i32, HashMap<Identifier, Vec<Exp<Identifier, Values>>>> =
         HashMap::new();
     candidate_exprs.insert(prog_size, HashMap::new());
     for rule in synth_fun.get_all_rules() {
@@ -142,7 +108,7 @@ pub fn enum_synth_fun() -> Either<String, String> {
             .insert(rule.0.clone(), vec![]);
         for production in rule.1 {
             let now_expr = production.get_body().clone();
-            if !check_terminal(&now_expr, &synth_fun) {
+            if !check_terminal::<Identifier, Values, Types>(&now_expr, synth_fun) {
                 continue;
             }
             if visited_exprs.contains(&now_expr) {
@@ -158,7 +124,7 @@ pub fn enum_synth_fun() -> Either<String, String> {
         }
     }
     
-    let mut counter_examples: Vec<HashMap<String, (lia::Types, lia::Values)>> = Vec::new();
+    let mut counter_examples: Vec<HashMap<Identifier, (Types, Values)>> = Vec::new();
 
     loop {
         let now_exprs = get_availabe_progs(
@@ -168,20 +134,18 @@ pub fn enum_synth_fun() -> Either<String, String> {
             synth_fun.get_return_type(),
         );
         for expr in now_exprs {
-            if check_terminal(&expr, &synth_fun) {
-                let now_prog = synth_fun.exp_to_basic_fun(Some(&ctx), &expr);
+            if check_terminal::<Identifier, Values, Types>(&expr, &synth_fun) {
+                let now_prog = synth_fun.exp_to_basic_fun(Some(scope), &expr);
                 // 首先计算是否满足先前返回的反例
                 // 反例是一个 HashMap<String, (Type, Value)>
 
-                // TODO: Check here!
                 let mut pass_test = true;
-                ctx.get_value(&"*".to_string()).unwrap().expect_right("error");
                 if !counter_examples.is_empty() {
                     for counter_example in counter_examples.iter() {
                         for constraint in constraints {
                             let passed = constraint.get_body().instantiate_and_execute(
                                 &synth_fun,
-                                Some(&ctx),
+                                Some(scope),
                                 &expr,
                                 |id| match counter_example.get(id) {
                                     Some((_, v)) => Ok(Either::Left(*v)),
@@ -204,9 +168,6 @@ pub fn enum_synth_fun() -> Either<String, String> {
                     }
                 }
 
-                // 感觉 instance_and_execute 有问题
-                // TODO: instance_and_execute
-                pass_test = true;
                 if !pass_test {
                     continue;
                 }
@@ -229,8 +190,7 @@ pub fn enum_synth_fun() -> Either<String, String> {
                         }
                         Right(e) => {
                             println!("The exp satisifies all constraints: {:?}", e);
-                            let res = format!("{}{})", synth_fun.trans_to_string(), expr.trans_to_string());
-                            return Left(res);
+                            return Ok(expr);
                         }
                     },
                     Err(e) => {
@@ -251,12 +211,72 @@ pub fn enum_synth_fun() -> Either<String, String> {
             &mut visited_exprs,
         );
     }
-    return Right("No solution found".to_string());
+    return Err("No solution found".to_string());
 }
 
-fn check_terminal(
-    exp: &Exp<String, lia::Values>,
-    synth_fun: &SynthFun<String, lia::Values, lia::Types>,
+/// 对于 LIA 的枚举合成器
+fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
+    let mut ctx = lia_builtin::lia_builtin::get_empty_context_with_builtin();
+    let mut defines = Vec::new();
+    let mut declare_vars = Vec::new();
+    let mut synth_func = None;
+    let mut constraints: Vec<Constraint<String, lia::Values>> = Vec::new();
+    for exp in &sexps[1..] {
+        let parse_exp = Command::<String, lia::Values, lia::Types>::parse(&exp, &mut ctx);
+        match parse_exp {
+            Ok(c) => match c {
+                Command::DefineFun(d) => {
+                    defines.push(d);
+                }
+                Command::DeclareVar(v) => {
+                    declare_vars.push(v);
+                }
+                Command::SynthFun(s) => {
+                    synth_func = Some(s);
+                }
+                Command::Constraint(c) => {
+                    constraints.push(c);
+                }
+                _ => {}
+            },
+            Err(e) => {
+                panic!("Error: {:?}", e);
+            }
+        }
+    }
+    let synth_fun = match synth_func {
+        Some(s) => s,
+        None => panic!("No synth function defined"),
+    };
+
+    let res_exp = basic_search(
+        &synth_fun, 
+        &constraints, 
+        &defines, 
+        &declare_vars, 
+        &ctx);
+    
+    match res_exp {
+        Ok(e) => {
+            println!("Found a solution: {}", e.to_string());
+            return Left(e.to_string());
+        },
+        Err(e) => {
+            println!("Error: {:?}", e);
+            return Right(format!("Error: {:?}", e));
+        }
+    }
+
+
+}
+
+fn check_terminal<
+    Identifier: Eq + Hash + Clone + VarIndex + Debug,
+    Values: Eq + Copy + Debug + Hash + ConstraintPassesValue,
+    Types: Eq + Copy + Debug + Hash,
+>(
+    exp: &Exp<Identifier, Values>,
+    synth_fun: &SynthFun<Identifier, Values, Types>,
 ) -> bool {
     match exp {
         Exp::Value(v) => match v {
@@ -266,7 +286,7 @@ fn check_terminal(
         Exp::Apply(func, args) => {
             if synth_fun.is_terminal(func) {
                 for arg in args {
-                    if !check_terminal(arg, synth_fun) {
+                    if !check_terminal::<Identifier, Values, Types>(arg, synth_fun) {
                         return false;
                     }
                 }
@@ -284,11 +304,15 @@ fn check_terminal(
 /// x1 + x2 = prog_size
 /// 如果有 k 个非终结符, 则 x1 + x2 + ... + xk = prog_size
 /// 所有的结果会被写入 candidate_exprs[prog_size] 中
-fn enumerate_exprs(
-    synth_fun: &SynthFun<String, lia::Values, lia::Types>,
-    candidate_exprs: &mut HashMap<i32, HashMap<String, Vec<Exp<String, lia::Values>>>>,
+fn enumerate_exprs<
+    Identifier: Eq + Hash + Clone + VarIndex + Debug,
+    Values: Clone + Debug + Copy + Eq + Hash,
+    Types: Eq + Copy + Debug + Hash,
+>(
+    synth_fun: &SynthFun<Identifier, Values, Types>,
+    candidate_exprs: &mut HashMap<i32, HashMap<Identifier, Vec<Exp<Identifier, Values>>>>,
     prog_size: i32,
-    visited_exprs: &mut HashSet<Exp<String, lia::Values>>,
+    visited_exprs: &mut HashSet<Exp<Identifier, Values>>,
 ) {
     let non_terminals = synth_fun
         .get_all_rules()
@@ -318,12 +342,16 @@ fn enumerate_exprs(
 }
 
 /// 得到候选程序中可用的表达式
-fn get_availabe_progs(
-    synth_fun: &SynthFun<String, lia::Values, lia::Types>,
-    candidate_exprs: &HashMap<i32, HashMap<String, Vec<Exp<String, lia::Values>>>>,
+fn get_availabe_progs<
+    Identifier: Eq + Hash + Clone + VarIndex + Debug,
+    Values: Eq + Copy + Debug + Hash + ConstraintPassesValue,
+    Types: Eq + Copy + Debug + Hash,
+>(
+    synth_fun: &SynthFun<Identifier, Values, Types>,
+    candidate_exprs: &HashMap<i32, HashMap<Identifier, Vec<Exp<Identifier, Values>>>>,
     prog_size: i32,
-    ty: &lia::Types,
-) -> Vec<Exp<String, lia::Values>> {
+    ty: &Types,
+) -> Vec<Exp<Identifier, Values>> {
     let mut availabe_progs = Vec::new();
     let possible_progs = candidate_exprs.get(&prog_size);
     if possible_progs.is_none() {
@@ -472,47 +500,49 @@ fn dfs_one_non_terminal_rule<
     results
 }
 
-impl TransToString for lia::Types {
-    fn trans_to_string(&self) -> String {
+impl ToString for lia::Types {
+    fn to_string(&self) -> String {
         match self {
-            Types::Int => "Int".to_string(),
-            Types::Bool => "Bool".to_string(),
-            Types::Function => "Function".to_string(), // 在 SMT-LIB 中未直接支持，可以做自定义扩展
+            lia::Types::Int => "Int".to_string(),
+            lia::Types::Bool => "Bool".to_string(),
+            lia::Types::Function => "Function".to_string(), // 在 SMT-LIB 中未直接支持，可以做自定义扩展
         }
     }
 }
 
-impl TransToString for Values {
-    fn trans_to_string(&self) -> String {
+
+impl ToString for lia::Values {
+    fn to_string(&self) -> String {
         match self {
-            Values::Int(v) => v.to_string(),
-            Values::Bool(v) => v.to_string(),
+            lia::Values::Int(v) => v.to_string(),
+            lia::Values::Bool(v) => v.to_string(),
         }
     }
 }
 
-impl<Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + TransToString> TransToString
+
+impl <Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + ToString> ToString
     for Terms<Identifier, PrimValues>
 {
-    fn trans_to_string(&self) -> String {
+    fn to_string(&self) -> String {
         match self {
             Terms::Var(var) => var.to_string(),
-            Terms::PrimValue(value) => value.trans_to_string(),
+            Terms::PrimValue(value) => value.to_string(),
         }
     }
 }
 
-impl<Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + TransToString> TransToString
+impl<Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + ToString> ToString
     for Exp<Identifier, PrimValues>
 {
-    fn trans_to_string(&self) -> String {
+    fn to_string(&self) -> String {
         match self {
-            Exp::Value(term) => term.trans_to_string(),
+            Exp::Value(term) => term.to_string(),
             Exp::Apply(func, args) => {
                 let func_str = func.to_string();
                 let args_str = args
                     .iter()
-                    .map(|arg| arg.trans_to_string())
+                    .map(|arg| arg.to_string())
                     .collect::<Vec<String>>()
                     .join(" ");
                 format!("({} {})", func_str, args_str)
@@ -521,16 +551,16 @@ impl<Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + TransToString> T
     }
 }
 
-impl TransToString for SynthFun<String, lia::Values, lia::Types> {
-    fn trans_to_string(&self) -> String {
+impl ToString for SynthFun<String, lia::Values, lia::Types> {
+    fn to_string(&self) -> String {
         let name = self.get_name();
         let args = self
             .get_args()
             .iter()
-            .map(|(arg_name, arg_type)| format!("({} {})", arg_name, arg_type.trans_to_string()))
+            .map(|(arg_name, arg_type)| format!("({} {})", arg_name, arg_type.to_string()))
             .collect::<Vec<String>>()
             .join(" ");
 
-        format!("(define-fun {} ({}) {} ", name, args, self.get_return_type().trans_to_string())
+        format!("(define-fun {} ({}) {} ", name, args, self.get_return_type().to_string())
     }
 }
