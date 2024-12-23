@@ -146,7 +146,7 @@ fn basic_search<'a,
                             let passed = constraint.get_body().instantiate_and_execute(
                                 &synth_fun,
                                 Some(scope),
-                                &expr,
+                                &expr.clone(),
                                 |id| match counter_example.get(id) {
                                     Some((_, v)) => Ok(Either::Left(*v)),
                                     None => Err(GetValueError::VarNotDefinedWhenGet(
@@ -177,7 +177,7 @@ fn basic_search<'a,
                 let mut solver = z3_solver::Z3Solver::new(
                     defines,
                     declare_vars,
-                    &synth_fun.clone(),
+                    &synth_fun,
                     constraints,
                     &z3_ctx,
                 );
@@ -266,8 +266,6 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
             return Right(format!("Error: {:?}", e));
         }
     }
-
-
 }
 
 fn check_terminal<
