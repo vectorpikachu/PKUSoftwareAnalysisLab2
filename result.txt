@@ -1,1 +1,1 @@
-(define-fun max2 ((x Int) (y Int)) Int (ite (<= y x) x y))
+(define-fun comm ((x Int) (y Int)) Int (+ x y))

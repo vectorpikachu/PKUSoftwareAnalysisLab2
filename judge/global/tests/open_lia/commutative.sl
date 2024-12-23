@@ -14,6 +14,7 @@
 (constraint (= (comm x y) (comm y x)))
 
 
+
 (check-synth)
 
 ; (+ x y) is a valid solution
