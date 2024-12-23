@@ -5,7 +5,9 @@ use either::Either::{self, Left, Right};
 use z3::{self, ast::Ast};
 use z3::{Context, RecFuncDecl, Sort, SortKind};
 
-use z3::ast::{Bool, Dynamic, BV};
+use z3::ast::{Bool, Dynamic};
+
+use crate::z3_builtin_checker::check_z3_builtin;
 
 use crate::base::language::{BasicFun, Exp, Terms, Type};
 use crate::base::{
@@ -89,7 +91,6 @@ pub trait Z3SortToTypes<Types: Type> {
 }
 
 /// Z3Solver 是一个封装了 Z3 的求解器的结构体
-
 pub struct Z3Solver<'ctx, Identifier: VarIndex + Clone + Eq + Hash,
     PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug + NewPrimValues,
 > {
@@ -98,10 +99,9 @@ pub struct Z3Solver<'ctx, Identifier: VarIndex + Clone + Eq + Hash,
     synth_fun: Option<z3::RecFuncDecl<'ctx>>,
     defined_funs: HashMap<Identifier, z3::RecFuncDecl<'ctx>>,
     declared_vars: HashMap<Identifier, z3::ast::Dynamic<'ctx>>,
-    constraints: &'ctx [Constraint<Identifier, PrimValues>],
+    constraints: Vec<Constraint<Identifier, PrimValues>>,
 }
 
-// TODO: 要把Context里面的 builtin 的函数也加入进来
 impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
     PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug + NewPrimValues,
 > Z3Solver<'ctx, Identifier, PrimValues> {
@@ -113,10 +113,10 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
         FunctionVar: PositionedExecutable<Identifier, PrimValues, PrimValues> + Clone,
         Context: Scope<Identifier, Types, PrimValues, FunctionVar>,
     >(
-        define_funs: &[Arc<DefineFun<Identifier, PrimValues, Types, FunctionVar, Context>>],
-        declare_vars: &[DeclareVar<Identifier, Types>],
+        define_funs: &Vec<Arc<DefineFun<Identifier, PrimValues, Types, FunctionVar, Context>>>,
+        declare_vars: &Vec<DeclareVar<Identifier, Types>>,
         synth_fun: &SynthFun<Identifier, PrimValues, Types>,
-        constraints: &'ctx [Constraint<Identifier, PrimValues>],
+        constraints: &Vec<Constraint<Identifier, PrimValues>>,
         ctx: &'ctx z3::Context,
     ) -> Self {
         let mut z3_solver: Z3Solver<'ctx, Identifier, PrimValues> = Z3Solver {
@@ -125,8 +125,9 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
             synth_fun: None,
             defined_funs: HashMap::new(),
             declared_vars: HashMap::new(),
-            constraints,
+            constraints: constraints.clone(),
         };
+        z3_solver.solver.reset();
 
         // 我只需要先建立一个 Decl 就好了
         let synth_fun_decl = synth_fun.get_z3_decl(&ctx, &z3_solver);
@@ -186,7 +187,7 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
         let synth_fun_expr = synth_fun.get_z3_decl_expr(self.ctx, &args_hashmap, self);
         self.synth_fun.as_ref().unwrap().add_def(args_ref.as_slice(), &synth_fun_expr);
         let mut assert = Bool::from_bool(self.ctx, true);
-        for constraint in self.constraints {
+        for constraint in self.constraints.clone() {
             let z3_constraint = constraint.get_z3_assert(&self.ctx, &self);
             assert = Bool::and(&self.ctx, &[&assert, &z3_constraint]);
         }
@@ -596,182 +597,5 @@ impl<Types: Type> Z3SortToTypes<Types> for z3::Sort<'_> {
             z3::SortKind::Bool => Types::from_identifier("Bool").unwrap(),
             _ => panic!("Unsupported sort kind"),
         }
-    }
-}
-
-/// 检查当前是否是一个 Z3 的内建函数
-fn check_z3_builtin<'ctx>(
-    args: &Vec<Dynamic<'ctx>>,
-    f: &str,
-) -> Result<Dynamic<'ctx>, String> {
-    match f {
-        "=" => {
-            arg_num_check(args, 2, "=");
-            Ok(args[0]._eq(&args[1]).into())
-        }
-        "+" => {
-            arg_num_check(args, 2, "+");
-            let kind = args[0].get_sort().kind();
-            match kind {
-                SortKind::Int => Ok((args[0].as_int().unwrap() + args[1].as_int().unwrap()).into()),
-                SortKind::BV => Ok((args[0].as_bv().unwrap() + args[1].as_bv().unwrap()).into()),
-                _ => Err(format!("Unsupported type in +: {:?}", kind)),
-            }
-        }
-        "-" => {
-            arg_num_check(args, 2, "-");
-            let kind = args[0].get_sort().kind();
-            match kind {
-                SortKind::Int => Ok((args[0].as_int().unwrap() - args[1].as_int().unwrap()).into()),
-                SortKind::BV => Ok((args[0].as_bv().unwrap() - args[1].as_bv().unwrap()).into()),
-                _ => Err(format!("Unsupported type in -: {:?}", kind)),
-            }
-        }
-        "*" => {
-            arg_num_check(args, 2, "*");
-            let kind = args[0].get_sort().kind();
-            match kind {
-                SortKind::Int => Ok((args[0].as_int().unwrap() * args[1].as_int().unwrap()).into()),
-                SortKind::BV => Ok((args[0].as_bv().unwrap() * args[1].as_bv().unwrap()).into()),
-                _ => Err(format!("Unsupported type in *: {:?}", kind)),
-            }
-        }
-        "mod" => {
-            arg_num_check(args, 2, "mod");
-            let kind = args[0].get_sort().kind();
-            match kind {
-                SortKind::Int => Ok((args[0].as_int().unwrap() % args[1].as_int().unwrap()).into()),
-                SortKind::BV => Ok((args[0].as_bv().unwrap().bvsmod(&args[1].as_bv().unwrap())).into()),
-                _ => Err(format!("Unsupported type in mod: {:?}", kind)),
-            }
-        }
-        "<" => {
-            arg_num_check(args, 2, "<");
-            let kind = args[0].get_sort().kind();
-            match kind {
-                SortKind::Int => Ok((args[0].as_int().unwrap().lt(&args[1].as_int().unwrap())).into()),
-                _ => Err(format!("Unsupported type in <: {:?}", kind)),
-            }
-        }
-        ">" => {
-            arg_num_check(args, 2, ">");
-            let kind = args[0].get_sort().kind();
-            match kind {
-                SortKind::Int => Ok((args[0].as_int().unwrap().gt(&args[1].as_int().unwrap())).into()),
-                _ => Err(format!("Unsupported type in >: {:?}", kind)),
-            }
-        }
-        "<=" => {
-            arg_num_check(args, 2, "<=");
-            let kind = args[0].get_sort().kind();
-            match kind {
-                SortKind::Int => Ok((args[0].as_int().unwrap().le(&args[1].as_int().unwrap())).into()),
-                _ => Err(format!("Unsupported type in <=: {:?}", kind)),
-            }
-        }
-        ">=" => {
-            arg_num_check(args, 2, ">=");
-            let kind = args[0].get_sort().kind();
-            match kind {
-                SortKind::Int => Ok((args[0].as_int().unwrap().ge(&args[1].as_int().unwrap())).into()),
-                _ => Err(format!("Unsupported type in >=: {:?}", kind)),
-            }
-        }
-        "and" => {
-            arg_num_check(args, 2, "and");
-            let kind = args[0].get_sort().kind();
-            match kind {
-                SortKind::Bool => Ok((args[0].as_bool().unwrap() & args[1].as_bool().unwrap()).into()),
-                _ => Err(format!("Unsupported type in and: {:?}", kind)),
-            }
-        }
-        "or" => {
-            arg_num_check(args, 2, "or");
-            let kind = args[0].get_sort().kind();
-            match kind {
-                SortKind::Bool => Ok((args[0].as_bool().unwrap() | args[1].as_bool().unwrap()).into()),
-                _ => Err(format!("Unsupported type in or: {:?}", kind)),
-            }
-        }
-        "not" => {
-            arg_num_check(args, 1, "not");
-            let kind = args[0].get_sort().kind();
-            match kind {
-                SortKind::Bool => Ok(args[0].as_bool().unwrap().not().into()),
-                _ => Err(format!("Unsupported type in not: {:?}", kind)),
-            }
-        }
-        "ite" => {
-            arg_num_check(args, 3, "ite");
-            let kind = args[0].get_sort().kind();
-            if kind != SortKind::Bool {
-                return Err(format!("Expected Bool in ite, got {:?}", kind));
-            }
-            Ok(Bool::ite(&args[0].as_bool().unwrap(), &args[1], &args[2]).into())
-        }
-        _ => Err(format!("Unsupported function: {}", f)),
-    }
-}
-
-
-fn arg_num_check<'ctx>(args: &Vec<Dynamic<'ctx>>, num: usize, func_name: &str) {
-    if args.len() != num {
-        panic!("Expected {} arguments in {}, got {}", num, func_name, args.len());
-    }
-
-    match func_name {
-        "=" => {
-            let arg1_kind = args[0].get_sort().kind();
-            let arg2_kind = args[1].get_sort().kind();
-            if arg1_kind != arg2_kind {
-                panic!("Expected same type in =, got {:?} and {:?}", arg1_kind, arg2_kind);
-            }
-        }
-        "+" | "-" | "*" | "mod" => {
-            let arg1_kind = args[0].get_sort().kind();
-            let arg2_kind = args[1].get_sort().kind();
-            if arg1_kind != arg2_kind {
-                panic!("Expected same type in {}, got {:?} and {:?}", func_name, arg1_kind, arg2_kind);
-            }
-            if arg1_kind != SortKind::Int && arg1_kind != SortKind::BV {
-                panic!("Expected Int or BV in {}, got {:?}", func_name, arg1_kind);
-            }
-        }
-        "<" | ">" | "<=" | ">=" => {
-            let arg1_kind = args[0].get_sort().kind();
-            let arg2_kind = args[1].get_sort().kind();
-            if arg1_kind != arg2_kind {
-                panic!("Expected same type in {}, got {:?} and {:?}", func_name, arg1_kind, arg2_kind);
-            }
-            if arg1_kind != SortKind::Int {
-                panic!("Expected Int in {}, got {:?}", func_name, arg1_kind);
-            }
-        }
-        "and" | "or" => {
-            for arg in args {
-                let arg_kind = arg.get_sort().kind();
-                if arg_kind != SortKind::Bool {
-                    panic!("Expected Bool in {}, got {:?}", func_name, arg_kind);
-                }
-            }
-        }
-        "not" => {
-            let arg_kind = args[0].get_sort().kind();
-            if arg_kind != SortKind::Bool {
-                panic!("Expected Bool in {}, got {:?}", func_name, arg_kind);
-            }
-        }
-        "ite" => {
-            let arg1_kind = args[0].get_sort().kind();
-            if arg1_kind != SortKind::Bool {
-                panic!("Expected Bool in {}, got {:?}", func_name, arg1_kind);
-            }
-            let arg2_kind = args[1].get_sort().kind();
-            let arg3_kind = args[2].get_sort().kind();
-            if arg2_kind != arg3_kind {
-                panic!("Expected same type in {}, got {:?} and {:?}", func_name, arg2_kind, arg3_kind);
-            }
-        }
-        _ => {}
     }
 }
