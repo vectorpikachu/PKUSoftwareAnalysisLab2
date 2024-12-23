@@ -19,6 +19,7 @@ pub mod lia {
     pub enum Values{
         Int(i64),
         Bool(bool),
+        Exception   // 用于处理除零等问题
     }
 
     
@@ -43,7 +44,8 @@ pub mod lia {
         fn is_pass(&self) -> bool {
             match self {
                 Values::Int(_) => false,
-                Values::Bool(v) => *v
+                Values::Bool(v) => *v,
+                Values::Exception => false
             }
         }
     }
