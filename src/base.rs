@@ -175,6 +175,8 @@ pub mod scope {
         fn execute_in<ResultType>(&self, f: impl NamedExecutable<Identifier, Values, FunctionVar, ResultType>) -> Result<ResultType, ExecError> {
             f.execute(|var| self.get_value(var))
         }
+        /// 产生新的子作用域
+        fn fork(parent: Arc<Self>) -> Self;
     }
     #[derive(Debug)]
     pub struct ScopeImpl<Identifier, Types, Values, FunctionVar: PositionedExecutable<Identifier, Values, Values>> {
@@ -252,6 +254,9 @@ pub mod scope {
                 self.all_vars.insert(var, var_type);
                 Some(())
             }
+        }
+        fn fork(parent: Arc<Self>) -> Self {
+            ScopeImpl::new(Some(parent))
         }
     }
 
