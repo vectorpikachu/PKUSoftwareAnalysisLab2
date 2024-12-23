@@ -6,6 +6,7 @@ pub mod lia_logic;
 pub mod parser;
 pub mod z3_solver;
 pub mod enum_synth;
+pub mod lia_builtin;
 fn main() {
     let res = enum_synth::enum_synth_fun();
     

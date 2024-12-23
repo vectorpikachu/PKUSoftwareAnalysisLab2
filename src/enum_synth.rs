@@ -26,6 +26,7 @@ use crate::base::language::Rule;
 use crate::base::language::SynthFun;
 use crate::base::language::Terms;
 use crate::base::scope::Scope;
+use crate::lia_builtin;
 use crate::lia_logic::lia;
 use crate::lia_logic::lia::Types;
 use crate::lia_logic::lia::Values;
@@ -72,7 +73,7 @@ pub fn enum_synth_fun() -> Either<String, String> {
         _ => panic!("Expected a list"),
     };
     println!("{:#?}", sexps);
-    let mut ctx = lia::get_empty_context_with_builtin();
+    let mut ctx = lia_builtin::lia_builtin::get_empty_context_with_builtin();
     let mut defines = Vec::new();
     let mut declare_vars = Vec::new();
     let mut synth_func = None;
