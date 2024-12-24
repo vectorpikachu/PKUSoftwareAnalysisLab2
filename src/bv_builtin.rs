@@ -16,6 +16,7 @@ pub mod bv_builtin{
         BVADD,
         BVLSHR,
         BVSHL,
+        Impl,
     }
     fn omit_error_unless_debug<V, E: Debug>(v: Result<V, E>) -> Result<V, E> {
         if cfg!(debug_assertions) {
@@ -41,6 +42,13 @@ pub mod bv_builtin{
                     match (args[0], args[1]) {
                         (Values::BV(a), Values::BV(b)) => Ok(Values::Bool(a == b)),
                         _ => Err(ExecError::TypeMismatch(format!("Expected BV, BV in Eq, got {:?}, {:?}", args[0], args[1])))
+                    }
+                }
+                BuiltIn::Impl => {
+                    arg_num_check(&args, 2, "Impl")?;
+                    match (args[0], args[1]) {
+                        (Values::Bool(a), Values::Bool(b)) => Ok(Values::Bool(!a || b)),
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Bool, Bool in Impl, got {:?}, {:?}", args[0], args[1])))
                     }
                 }
                 BuiltIn::BVNOT => {
@@ -125,6 +133,7 @@ pub mod bv_builtin{
         context.add_and_set_function_var("bvadd".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::BVADD)));
         context.add_and_set_function_var("bvlshr".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::BVLSHR)));
         context.add_and_set_function_var("bvshl".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::BVSHL)));
+        context.add_and_set_function_var("=>".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::Impl)));
         context
     }
 }

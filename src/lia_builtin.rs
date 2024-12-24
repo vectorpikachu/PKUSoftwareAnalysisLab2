@@ -20,7 +20,7 @@ pub mod lia_builtin{
         OR,
         NOT,
         ITE,
-        IMPL
+        Impl,
     }
     fn omit_error_unless_debug<V, E: Debug>(v: Result<V, E>) -> Result<V, E> {
         if cfg!(debug_assertions) {
@@ -139,11 +139,11 @@ pub mod lia_builtin{
                         _ => Err(ExecError::TypeMismatch(format!("Expected Bool in ITE, got {:?}", args[0])))
                     }
                 }
-                BuiltIn::IMPL => {
-                    arg_num_check(&args, 2, "IMPL")?;
+                BuiltIn::Impl => {
+                    arg_num_check(&args, 2, "Impl")?;
                     match (args[0], args[1]) {
                         (Values::Bool(a), Values::Bool(b)) => Ok(Values::Bool(!a || b)),
-                        _ => Err(ExecError::TypeMismatch(format!("Expected Bool, Bool in IMPL, got {:?}, {:?}", args[0], args[1])))
+                        _ => Err(ExecError::TypeMismatch(format!("Expected Bool, Bool in Impl, got {:?}, {:?}", args[0], args[1])))
                     }
                 }
             };
@@ -170,7 +170,7 @@ pub mod lia_builtin{
         context.add_and_set_function_var("or".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::OR)));
         context.add_and_set_function_var("not".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::NOT)));
         context.add_and_set_function_var("ite".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::ITE)));
-        context.add_and_set_function_var("=>".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::IMPL)));
+        context.add_and_set_function_var("=>".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::Impl)));
         context
     }
 }

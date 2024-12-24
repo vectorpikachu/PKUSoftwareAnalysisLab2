@@ -34,7 +34,7 @@ pub mod search {
     use scc::ebr::Guard;
     use z3::Config;
     use std::{collections::HashMap, fmt::Debug, hash::Hash};
-    const MAX_THREADS: usize = 8;
+    const MAX_THREADS: usize = 15;
     // 高并发 HashMap
     type ConcurrentHashSet<K> = scc::HashSet<K>;
     type ConcurrentHashMap<K, V> = scc::HashMap<K, V>;
@@ -216,8 +216,8 @@ pub mod search {
             );
         };
     }
-const ATOMIC_WRITE_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Ordering::SeqCst;
-const ATOMIC_READ_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Ordering::SeqCst;
+const ATOMIC_WRITE_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Ordering::Release;
+const ATOMIC_READ_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Ordering::Acquire;
     fn sub_and_wake_when_zero(
         counter: &AtomicUsize,
         flag: &AtomicU32,
