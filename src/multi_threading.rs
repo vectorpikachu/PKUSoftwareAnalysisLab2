@@ -335,6 +335,13 @@ pub mod search {
                                                     valid_program = false;
                                                     break '_enum_test;  // 注意任务结束还有收尾，因此不能直接 continue '_enum_program;
                                                 },
+                                                Err(base::function::ExecError::TypeMismatch(_)) => {
+                                                    // 如果在计算所有 f 调用的时候就发现类型错误，例如 (ite a 1 1) 1，说明该程序不合法，应该直接丢弃
+                                                    // （也不能成为其他 f 的组成部分）
+                                                    pass_test = false;
+                                                    valid_program = false;
+                                                    break '_enum_test;
+                                                },
                                                 Err(e) => {
                                                     panic!("{:?}", e);
                                                 }
@@ -343,42 +350,46 @@ pub mod search {
                                         // if !valid_program {
                                         //     break;
                                         // }
-                                        for constaint in new_constraint_ref {
-                                            let res = constaint.get_body().execute_in_optional_context(
-                                                Some(scope_ref),
-                                                |id| {
-                                                    match values_on_each_call_map.get(&id).or(test.get(&id).map(|(_, v)| v)) {
-                                                        Some(v) => Ok(Either::Left(*v)),
-                                                        None => Err(GetValueError::VarNotDefinedWhenGet(format!("Var not defined when get in test conunter examples: {:?}", id)))
-                                                    }
-                                                }
-                                            );
-                                            let res_value = match res {
-                                                Ok(v) => v,
-                                                Err(ExecError::DivZero) => {
-                                                    pass_test = false;
-                                                    valid_program = false;
-                                                    break '_enum_test;
-                                                },
-                                                Err(ExecError::TypeMismatch(_)) => {
-                                                    pass_test = false;
-                                                    valid_program = false;
-                                                    break '_enum_test;
-                                                },
-                                                Err(e) => panic!("{:?}", e)
-                                            };
-                                            if !res_value.is_pass() {
-                                                trace!(
-                                                    "程序 {:?} 未通过测试 {:?} 的约束 {:?}",
-                                                    exp,
-                                                    test,
-                                                    constaint.get_body()
-                                                );
-                                                pass_test = false;
-                                            }
-                                        }
                                         let values_on_each_call = callings_map_ref.iter().map(|(id, _)| values_on_each_call_map.get(id).unwrap().clone()).collect::<Vec<_>>();
                                         values_on_each_test_and_each_call.push(values_on_each_call);
+
+                                        if synth_fun.get_type(&name_of_non_terminal).unwrap() != synth_fun.get_return_type() {
+                                            // 注意，对于返回值类型不匹配的程序，没有必要再计算是否满足约束，但之前的等价性检查仍然是可以进行的
+                                            pass_test = false;
+                                        }
+                                        else {
+                                            // 只对返回值类型匹配的程序进行约束检查即可
+                                            for constaint in new_constraint_ref {
+                                                let res = constaint.get_body().execute_in_optional_context(
+                                                    Some(scope_ref),
+                                                    |id| {
+                                                        match values_on_each_call_map.get(&id).or(test.get(&id).map(|(_, v)| v)) {
+                                                            Some(v) => Ok(Either::Left(*v)),
+                                                            None => Err(GetValueError::VarNotDefinedWhenGet(format!("Var not defined when get in test conunter examples: {:?}", id)))
+                                                        }
+                                                    }
+                                                );
+                                                let res_value = match res {
+                                                    Ok(v) => v,
+                                                    Err(ExecError::DivZero) => {
+                                                        pass_test = false;
+                                                        valid_program = false;
+                                                        break '_enum_test;
+                                                    },
+                                                    Err(e) => panic!("{:?}", e)
+                                                };
+                                                if !res_value.is_pass() {
+                                                    trace!(
+                                                        "程序 {:?} 未通过测试 {:?} 的约束 {:?}",
+                                                        exp,
+                                                        test,
+                                                        constaint.get_body()
+                                                    );
+                                                    pass_test = false;
+                                                }
+                                            }
+                                        }
+
                                     }
                                     // 如果测试通过，就写在 program_passes_tests_ref 中
                                     if pass_test {
@@ -546,7 +557,11 @@ pub mod search {
                                 swap(&mut temp_available_exps, &mut available_exps_ref);
                                 candidate_exprs.insert(prog_size, temp_available_exps);
                             }
+                            // println!("candidate_exprs: {:?}", candidate_exprs);
                             prog_size += 1;
+                            // if prog_size > 6 {
+                            //     panic!()
+                            // }
                         }
                     }
 
