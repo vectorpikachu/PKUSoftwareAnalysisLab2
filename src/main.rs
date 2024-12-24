@@ -1,6 +1,7 @@
 use std::{env, fs};
 
 use either::Either::Left;
+use log::info;
 
 pub mod base;
 pub mod exp;
@@ -23,6 +24,7 @@ pub fn read_file() -> String {
         std::process::exit(1);
     }
     let file_name = &args[1];
+    // let file_name = "judge/global/tests/open_basic/three.sl";
     let file_type = file_name.split(".").last().unwrap();
     if file_type != "sl" {
         eprintln!("File type error: only .sl file is supported");
@@ -37,20 +39,21 @@ pub fn read_file() -> String {
 }
 
 fn main() {
+    env_logger::init();
+    info!("Start enum synthesis");
     let file = read_file();
-    // let res = enum_synth::enum_synth_fun(&file);
-    
-    // // 写进 result.txt
-    // use std::fs::File;
-    // use std::io::Write;
-    // let mut file = File::create("result.txt").unwrap();
-    // match res {
-    //     Left(s) => {
-    //         file.write_all(s.as_bytes()).unwrap();
-    //         println!("{}", s);
-    //     },
-    //     _ => {
-    //         panic!("Error");
-    //     }
-    // }
+    let res = enum_synth::enum_synth_fun(&file);
+    // 写进 result.txt
+    use std::fs::File;
+    use std::io::Write;
+    let mut file = File::create("result.txt").unwrap();
+    match res {
+        Left(s) => {
+            file.write_all(s.as_bytes()).unwrap();
+            println!("{}", s);
+        },
+        _ => {
+            panic!("Error");
+        }
+    }
 }

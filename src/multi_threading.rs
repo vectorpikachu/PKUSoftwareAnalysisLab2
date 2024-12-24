@@ -63,12 +63,19 @@ pub mod search {
         mut identifier_iter: Peekable<impl Iterator<Item = Identifier> + Clone>,
         pointer_iter: Option<std::slice::Iter<*mut Exp<Identifier, Values>>>, // 下一个要修改的是 cur_enum_non_terminal 的哪个引用，为空表示从当前非终结符的第一个引用开始
         // visited_exprs: &mut HashSet<Exp<Identifier, Values>>,
+        guard: &Guard,  // 用来保护 ExpQueue 的读取
     ) -> bool {
-        if remaining_size == 0 {
+        // println!("{:?}", actual_rule.get_body());
+        // println!("remaining_size: {}, remaining_non_terminals: {}", remaining_size, remaining_non_terminals);
+        if remaining_size == 1 {
             if remaining_non_terminals == 0 {
                 // 所有非终结符都替换完毕，将结果加入到 results 中
                 let res = actual_rule.get_body().clone();
                 return results_handler(res);
+            }
+            else {
+                // println!("剩余非终结符不为 0，但是剩余大小为 1，直接返回");
+                return true;    // 本次枚举没有得到新结果，可以继续枚举
             }
         }
         let cur_non_terminals = match identifier_iter.peek() {
@@ -93,6 +100,7 @@ pub mod search {
                     occurrences_mut_pointer,
                     identifier_iter,
                     None,
+                    guard
                     // visited_exprs,
                 )
             }
@@ -102,29 +110,53 @@ pub mod search {
         for sz in 1..=remaining_size {
             // 选择当前非终结符的 size
             if let Some(cur_candidates) = candidate_exprs.get(&sz) {
-                if let Some(cur_candidates) = cur_candidates.get(&cur_non_terminals) {
-                    let guard = Guard::new();
-                    for candidate in cur_candidates.get().iter(&guard) {
-                        // 替换当前的引用
-                        unsafe {
-                            **cur_enum_loc = candidate.clone();
+                // if let Some(cur_candidates) = cur_candidates.get(&cur_non_terminals) {
+                //     let guard = Guard::new();
+                //     for candidate in cur_candidates.get().iter(&guard) {
+                //         // 替换当前的引用
+                //         unsafe {
+                //             **cur_enum_loc = candidate.clone();
+                //         }
+                //         println!("sz: {}, cur_non_terminals: {:?}, candidate: {:?}", sz, cur_non_terminals, candidate);
+                //         let res = dfs_one_non_terminal_rule_aux(
+                //             actual_rule,
+                //             candidate_exprs,
+                //             results_handler.clone(),
+                //             remaining_size - sz,
+                //             remaining_non_terminals - 1,
+                //             occurrences_mut_pointer,
+                //             identifier_iter.clone(),
+                //             Some(pointer_iter.clone()),
+                //             // visited_exprs,
+                //         );
+                //         return res;
+                //     }
+                // }
+                cur_candidates.peek_with(&cur_non_terminals, 
+                    |_, cur_candidates| {
+                        for candidate in cur_candidates.iter(&guard) {
+                            // 替换当前的引用
+                            unsafe {
+                                **cur_enum_loc = candidate.clone();
+                            }
+                            // println!("sz: {}, cur_non_terminals: {:?}, candidate: {:?}", sz, cur_non_terminals, candidate);
+                            let res = dfs_one_non_terminal_rule_aux(
+                                actual_rule,
+                                candidate_exprs,
+                                results_handler.clone(),
+                                remaining_size - sz,
+                                remaining_non_terminals - 1,
+                                occurrences_mut_pointer,
+                                identifier_iter.clone(),
+                                Some(pointer_iter.clone()),
+                                // visited_exprs,
+                                guard
+                            );
+                            return res;
                         }
-                        let res = dfs_one_non_terminal_rule_aux(
-                            actual_rule,
-                            candidate_exprs,
-                            results_handler.clone(),
-                            remaining_size - sz,
-                            remaining_non_terminals - 1,
-                            occurrences_mut_pointer,
-                            identifier_iter.clone(),
-                            Some(pointer_iter.clone()),
-                            // visited_exprs,
-                        );
-                        if !res {
-                            return false;
-                        }
+                        return true;
                     }
-                }
+                );
             }
         }
         return true;
@@ -164,6 +196,7 @@ pub mod search {
             .collect::<HashMap<Identifier, Vec<*mut Exp<Identifier, Values>>>>();
         let total_non_terminals_in_rule: i32 =
             occurrences.iter().map(|(_, ocr)| ocr.len() as i32).sum();
+        let guard = Guard::new();
         unsafe{
             dfs_one_non_terminal_rule_aux(
                 &mut rule_to_modify,
@@ -175,6 +208,7 @@ pub mod search {
                 occurrences.keys().cloned().peekable(),
                 None,
                 // visited_exprs,
+                &guard
             );
         };
     }
@@ -198,6 +232,7 @@ pub mod search {
     ) -> Result<Exp<Identifier, Values>, String> 
     where 
     {
+        info!("开始搜索");
         let counter_examples: CounterExamples<Identifier, Values, Types> = CounterExamples::default();
         // 收集所有对 f 的调用
         let (new_constraint, callings_map) = collect_callings_of_fun(
@@ -238,12 +273,15 @@ pub mod search {
                             move || {
                                 let available_exps_ref = available_exps_ref.clone();
                                 let turn_is_finish_ref = turn_is_finish_ref.clone();
+                                trace!("线程启动");
                                 '_enum_program: while let Ok(msg) = rx.recv() {
                                     let available_exps_ref = available_exps_ref.read().unwrap();
                                     // 注意这里 rx.recv 是 block 的
                                     let (name_of_non_terminal, exp) = match msg {
                                         Message::Exp(name, exp) => (name, exp),
-                                        _ => panic!()
+                                        Message::Halt => {
+                                            break;
+                                        }
                                     };
                                     trace!(
                                         "接收到消息：{:?}: {:?}",
@@ -389,13 +427,9 @@ pub mod search {
                         candidate_exprs.insert(prog_size, ConcurrentHashIndex::new());
                         let all_rules = synth_fun.get_all_rules_with_non_terminals();
                         let all_non_terminals = all_rules.keys().cloned().collect::<HashSet<_>>();
-                        {
-                            let mut available_exps_ref = available_exps_ref.write().unwrap();
-                            for non_terminal in &all_non_terminals {
-                            // 初始化一些信息
-                                available_exps_ref.insert((*non_terminal).clone(), ExpQueue::default()).unwrap();
-                                prev_results.insert((*non_terminal).clone(), ConcurrentHashSet::new()).unwrap();
-                            }
+                        for non_terminal in &all_non_terminals {
+                        // 初始化一些信息
+                            prev_results.insert((*non_terminal).clone(), ConcurrentHashSet::new()).unwrap();
                         }
                         loop {
                             info!("枚举程序大小：{}", prog_size);
@@ -405,7 +439,7 @@ pub mod search {
                                 let mut available_exps_ref = available_exps_ref.write().unwrap();
                                 for non_terminal in &all_non_terminals {
                                 // 初始化一些信息
-                                    available_exps_ref.get(non_terminal).unwrap().update(ExpQueue::default());
+                                    available_exps_ref.insert((*non_terminal).clone(), ExpQueue::default()).unwrap();   // 注意由于每轮结束时，available_exps 会被清空，因此这里需要重建
                                     prev_results.get(non_terminal).unwrap().update(ConcurrentHashSet::new());
                                 }
                             }
@@ -429,11 +463,15 @@ pub mod search {
                                             return true;
                                         }
                                     );
+                                    debug!("枚举完成: {:?}", rule.get_body());
                                 }
                             }
-                            
-                            // 等待所有线程处理完毕。先使用 busy loop，等待优化
-                            atomic_wait::wait(turn_is_finish_ref.borrow(), 0);
+                            if processing_task_ref.clone().load(std::sync::atomic::Ordering::Relaxed) != 0 {
+                                debug!("当前任务数量：{}", processing_task_ref.clone().load(std::sync::atomic::Ordering::Relaxed));
+                                // 先检查一下是否有任务
+                                // 无论是任务已经完成还是本层没有任务，判断一下都是正确的
+                                atomic_wait::wait(turn_is_finish_ref.borrow(), 0);
+                            }
                             info!("本轮所有任务完成，主线程被唤醒");
                             // 如果找到通过测试的解
                             if let Some(exp) = program_passes_tests_ref.get() {
@@ -468,6 +506,9 @@ pub mod search {
                                 candidate_exprs.insert(prog_size, temp_available_exps);
                             }
                             prog_size += 1;
+                            if prog_size > 10 {
+                                panic!()
+                            }
                         }
                     }
                     // 向所有线程发送停止消息

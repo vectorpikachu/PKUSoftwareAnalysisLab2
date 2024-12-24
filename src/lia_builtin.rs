@@ -43,14 +43,14 @@ pub mod lia_builtin{
                 BuiltIn::Add => {
                     arg_num_check(&args, 2, "Add")?;
                     match (args[0], args[1]) {
-                        (Values::Int(a), Values::Int(b)) => Ok(Values::Int(a + b)),
+                        (Values::Int(a), Values::Int(b)) => Ok(Values::Int(i64::wrapping_add(a, b))),
                         _ => Err(ExecError::TypeMismatch(format!("Expected Int, Int in Add, got {:?}, {:?}", args[0], args[1])))
                     }
                 }
                 BuiltIn::Sub => {
                     arg_num_check(&args, 2, "Sub")?;
                     match (args[0], args[1]) {
-                        (Values::Int(a), Values::Int(b)) => Ok(Values::Int(a - b)),
+                        (Values::Int(a), Values::Int(b)) => Ok(Values::Int(i64::wrapping_sub(a, b))),
                         _ => Err(ExecError::TypeMismatch(format!("Expected Int, Int in Sub, got {:?}, {:?}", args[0], args[1])))
                     }
                 }
@@ -72,7 +72,7 @@ pub mod lia_builtin{
                 BuiltIn::MUL => {
                     arg_num_check(&args, 2, "MUL")?;
                     match (args[0], args[1]) {
-                        (Values::Int(a), Values::Int(b)) => Ok(Values::Int(a * b)),
+                        (Values::Int(a), Values::Int(b)) => Ok(Values::Int(i64::wrapping_mul(a, b))),
                         _ => Err(ExecError::TypeMismatch(format!("Expected Int, Int in MUL, got {:?}, {:?}", args[0], args[1])))
                     }
                 }
