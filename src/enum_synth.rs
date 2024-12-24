@@ -270,6 +270,9 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
     };
     let z3_ctx = Arc::new(z3::Context::new(&Config::new()));
     let arc_ctx = Arc::new(ctx.clone());
+    for define in defines.iter() {
+        define.context.set(arc_ctx.clone());
+    }
     let res_exp = concurrent_search(
         &synth_fun,
         &constraints,

@@ -781,6 +781,7 @@ pub mod language {
                     if let Some(ctx) = context {
                         ctx.get_value(var)
                     } else {
+                        // panic!("No context provided");
                         Err(GetValueError::VarNotDefinedWhenGet(format!("{:?}", var)))
                     }
                 }

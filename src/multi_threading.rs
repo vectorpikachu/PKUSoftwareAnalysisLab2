@@ -345,6 +345,7 @@ const ATOMIC_READ_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Orderi
                                     '_enum_test: for test in counter_examples_ref.iter(&guard) {
                                         let mut values_on_each_call_map = HashMap::<Identifier, Values>::new();
                                         for (id, call_exp) in callings_map_ref {
+                                            scope_ref.get_value(&Identifier::from_name("ite".to_string())).unwrap();
                                             let res = call_exp.execute_in_optional_context(
                                                 Some(scope_ref),
                                                 |id| {
