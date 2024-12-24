@@ -1,6 +1,8 @@
 pub mod parser{
 
-    use std::{cell::OnceCell, collections::{HashMap, HashSet}};
+    use std::{any::Any, cell::OnceCell, collections::{HashMap, HashSet}};
+
+    use sexp::Sexp;
 
     use crate::base::{function::{PositionedExecutable, VarIndex}, language::{Constraint, DeclareVar, DefineFun, Exp, Rule, SynthFun, Terms, Type}, logic::{parse_logic_tag, LogicTag}, scope::{Scope, ScopeImpl}};
 
@@ -8,14 +10,23 @@ pub mod parser{
     where Self: Sized
     {
         fn parse(input: &sexp::Atom) -> Result<Self, String>;
+        fn parse_list(input: &Vec<Sexp>) -> Result<Self, String>;
     }
 
     impl AtomParser for String {
         fn parse(input: &sexp::Atom) -> Result<Self, String> {
             match input {
-                sexp::Atom::S(s) => Ok(s.clone()),
+                sexp::Atom::S(s) => {
+                    match s.chars().next() {
+                        Some('#') => Err("Expected a string".to_string()),
+                        _ => Ok(s.clone())
+                    }
+                },
                 _ => Err("Expected a string".to_string())
             }
+        }
+        fn parse_list(input: &Vec<Sexp>) -> Result<Self, String> {
+            Err("This type cannot be parsed from a list".to_string())
         }
     }
     impl AtomParser for i64 {
@@ -25,12 +36,25 @@ pub mod parser{
                 _ => Err("Expected an integer".to_string())
             }
         }
+        fn parse_list(input: &Vec<Sexp>) -> Result<Self, String> {
+            Err("This type cannot be parsed from a list".to_string())
+        }
     }
 
     impl <T: Type> AtomParser for T {
         fn parse(input: &sexp::Atom) -> Result<Self, String> {
             match input {
                 sexp::Atom::S(s) => match T::from_identifier(s) {
+                    Some(t) => Ok(t),
+                    None => Err(format!("Unknown type: {}", s))
+                },
+                _ => Err("Expected a string".to_string())
+            }
+        }
+
+        fn parse_list(input: &Vec<Sexp>) -> Result<Self, String> {
+            match input[1].clone() {
+                sexp::Sexp::Atom(sexp::Atom::S(s)) => match T::from_identifier(&s) {
                     Some(t) => Ok(t),
                     None => Err(format!("Unknown type: {}", s))
                 },
@@ -48,6 +72,7 @@ pub mod parser{
     impl <T: AtomParser> ContextFreeSexpParser for T {
         fn parse(input: &sexp::Sexp) -> Result<Self, String> {
             match input {
+                sexp::Sexp::List(list) => Self::parse_list(list),
                 sexp::Sexp::Atom(atom) => Self::parse(atom),
                 _ => Err(format!("Expected an atom, got {:?}", input))
             }

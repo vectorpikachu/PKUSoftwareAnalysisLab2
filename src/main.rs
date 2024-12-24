@@ -5,11 +5,13 @@ use either::Either::Left;
 pub mod base;
 pub mod exp;
 pub mod lia_logic;
+pub mod bv_logic;
 pub mod parser;
 pub mod multi_threading;
 pub mod z3_solver;
 pub mod collect_callings;
 pub mod lia_builtin;
+pub mod bv_builtin;
 pub mod enum_synth;
 pub mod z3_builtin_checker;
 

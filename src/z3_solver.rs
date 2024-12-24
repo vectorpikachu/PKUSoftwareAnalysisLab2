@@ -8,9 +8,6 @@ use z3::{Context, RecFuncDecl, Sort, SortKind};
 use z3::ast::{Bool, Dynamic};
 
 use crate::z3_builtin_checker::check_z3_builtin;
-use z3::ast::{Bool, Dynamic};
-
-use crate::z3_builtin_checker::check_z3_builtin;
 
 use crate::base::language::{BasicFun, Exp, Terms, Type};
 use crate::base::{
@@ -19,6 +16,7 @@ use crate::base::{
     scope::Scope,
 };
 use crate::lia_logic::lia::{self};
+use crate::bv_logic::bv::{self};
 
 pub trait GetZ3Type<'ctx> {
     fn get_z3_type(&self, context: &'ctx Context) -> z3::Sort<'ctx>;
@@ -597,7 +595,57 @@ impl<Types: Type> Z3SortToTypes<Types> for z3::Sort<'_> {
     fn to_types(&self) -> Types {
         match self.kind() {
             z3::SortKind::Int => Types::from_identifier("Int").unwrap(),
+            z3::SortKind::BV => Types::from_identifier("BV").unwrap(),
             z3::SortKind::Bool => Types::from_identifier("Bool").unwrap(),
+            _ => panic!("Unsupported sort kind"),
+        }
+    }
+}
+
+
+
+impl<'ctx> GetZ3Type<'ctx> for bv::Types {
+    fn get_z3_type(&self, ctx: &'ctx z3::Context) -> z3::Sort<'ctx> {
+        match self {
+            bv::Types::BV => z3::Sort::bitvector(ctx, 64),
+            bv::Types::Bool => z3::Sort::bool(ctx),
+            bv::Types::Function => panic!("Function type is not supported"),
+        }
+    }
+}
+
+impl<'ctx> GetZ3Value<'ctx> for bv::Values {
+    fn get_z3_value(&self, ctx: &'ctx z3::Context) -> z3::ast::Dynamic<'ctx> {
+        match self {
+            bv::Values::BV(i) => {
+                let i = z3::ast::BV::from_u64(ctx, *i, 64);
+                i.into()
+            }
+            bv::Values::Bool(b) => {
+                let b = z3::ast::Bool::from_bool(ctx, *b);
+                b.into()
+            }
+        }
+    }
+}
+
+impl NewPrimValues for bv::Values {
+    fn new(z3_val: &Dynamic) -> Self {
+        match z3_val.get_sort().kind() {
+            z3::SortKind::BV => bv::Values::BV(
+                z3_val
+                    .as_int()
+                    .unwrap()
+                    .as_u64()
+                    .expect("Expected an integer"),
+            ),
+            z3::SortKind::Bool => bv::Values::Bool(
+                z3_val
+                    .as_bool()
+                    .unwrap()
+                    .as_bool()
+                    .expect("Expected a boolean"),
+            ),
             _ => panic!("Unsupported sort kind"),
         }
     }
