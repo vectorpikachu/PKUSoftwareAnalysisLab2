@@ -4,7 +4,7 @@ pub mod search {
     use std::collections::HashSet;
     use std::mem::swap;
     use std::rc::Rc;
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{AtomicU32, AtomicUsize};
     use std::task::Context;
     use std::thread::{self, sleep};
     use std::sync::{
@@ -29,6 +29,7 @@ pub mod search {
         scope::Scope
     };
     use either::Either::{self, Left, Right};
+    use log::{debug, info, trace};
     use once_cell::sync::OnceCell;
     use scc::ebr::Guard;
     use z3::Config;
@@ -220,7 +221,10 @@ pub mod search {
             // let all_tasks_done_flag: Arc<Cell<OnceCell<()>>> = Arc::new(Cell::new(OnceCell::new()));
 
             let processing_task: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));  // 用于记录当前处理的任务数
+            let turn_is_finish: Arc<AtomicU32> = Arc::new(AtomicU32::new(0));  // 用于标注当前轮次是否结束
+
             let processing_task_ref = &processing_task;
+            let turn_is_finish_ref = &turn_is_finish;
             if let Ok(result_exp) = thread::scope(
                 |s| {
                     let mut threads = Vec::new();
@@ -230,14 +234,23 @@ pub mod search {
                         threads.push(s.spawn(
                             move || {
                                 let available_exps_ref = available_exps_ref.clone();
+                                let turn_is_finish_ref = turn_is_finish_ref.clone();
                                 '_enum_program: while let Ok(msg) = rx.recv() {
                                     let available_exps_ref = available_exps_ref.read().unwrap();
                                     // 注意这里 rx.recv 是 block 的
                                     let (name_of_non_terminal, exp) = match msg {
                                         Message::Exp(name, exp) => (name, exp),
-                                        _ => break
+                                        _ => panic!()
                                     };
+                                    trace!(
+                                        "接收到消息：{:?}: {:?}",
+                                        name_of_non_terminal,
+                                        exp
+                                    );
                                     if program_passes_tests_ref.get().is_some() {
+                                        info!(
+                                            "其他线程找到解，退出"
+                                        );
                                         break;
                                     }
                                     let scope_ref: &Context = scope_arc_ref.borrow();
@@ -305,6 +318,12 @@ pub mod search {
                                                 Err(e) => panic!("{:?}", e)
                                             };
                                             if !res_value.is_pass() {
+                                                trace!(
+                                                    "程序 {:?} 未通过测试 {:?} 的约束 {:?}",
+                                                    exp,
+                                                    test,
+                                                    constaint.get_body()
+                                                );
                                                 pass_test = false;
                                             }
                                         }
@@ -313,7 +332,13 @@ pub mod search {
                                     }
                                     // 如果测试通过，就写在 program_passes_tests_ref 中
                                     if pass_test {
+                                        info!(
+                                            "程序 {:?} 通过所有测试",
+                                            exp
+                                        );
                                         let _ = program_passes_tests_ref.set(exp);  // 注意，假如其他线程已经找到解，这里的 set 可能会被忽略，这正是我们预期的行为
+                                        turn_is_finish_ref.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        atomic_wait::wake_all(turn_is_finish_ref.borrow() as *const AtomicU32);
                                         break;
                                     }
                                     // 否则，检查当前的 f 是否需要被等价性消减
@@ -338,9 +363,12 @@ pub mod search {
                                     }
                                     if processing_task_ref.clone().fetch_sub(1, std::sync::atomic::Ordering::Relaxed) == 1 {
                                         // 如果当前任务是最后一个任务，说明所有任务已经完成
-                                        // let _ = all_tasks_done_flag_ref.set(());
+                                        turn_is_finish_ref.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                        atomic_wait::wake_all(turn_is_finish_ref.borrow() as *const AtomicU32);
+                                        info!("本轮所有任务完成")
                                     }
                                 }
+                                debug!("线程退出");
                             }
                         ))
                     }
@@ -367,6 +395,7 @@ pub mod search {
                             }
                         }
                         loop {
+                            info!("枚举程序大小：{}", prog_size);
                             // let _ = all_tasks_done_flag.take();
                             // 我们假设所有线程处理程序大小是同步的，主线程会等待当前大小程序全部处理完，再处理下一个大小的程序
                             {
@@ -401,10 +430,8 @@ pub mod search {
                             }
                             
                             // 等待所有线程处理完毕。先使用 busy loop，等待优化
-                            while processing_task.load(std::sync::atomic::Ordering::Relaxed) != 0 && program_passes_tests_ref.get().is_none() {
-                                // busy loop
-                                sleep(std::time::Duration::from_micros(1000));
-                            }
+                            atomic_wait::wait(turn_is_finish_ref.borrow(), 0);
+                            info!("本轮所有任务完成，主线程被唤醒");
                             // 如果找到通过测试的解
                             if let Some(exp) = program_passes_tests_ref.get() {
                                 let mut solver = z3_solver_generator();
@@ -413,11 +440,13 @@ pub mod search {
                                 match res {
                                     Ok(either_val) => match either_val {
                                         Left(v) => {
+                                            debug!("找到新反例：{:?}", v);
                                             counter_examples.push(v);
                                             break 'enum_size;   // 如果找到了反例，直接退出枚举 size 的循环
                                         }
                                         Right(e) => {
                                             println!("The exp satisifies all constraints: {:?}", e);
+                                            info!("找到解：{:?}", e);
                                             return Ok(exp.clone());
                                         }
                                     },
@@ -426,6 +455,7 @@ pub mod search {
                                     }
                                 }
                             }
+                            info!("没有找到解，进入下一层");
                             // 否则，将本层得到的表达式加入可用表达式，进入下一层
                             // 将本层得到的表达式加入可用表达式
                             {
