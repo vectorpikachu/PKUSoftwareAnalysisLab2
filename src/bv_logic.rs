@@ -115,18 +115,20 @@ pub mod bv {
     } 
     #[test]
     fn simple_test() {
-        let code = "((define-fun shr1 ((x (_ BitVec 64))) (_ BitVec 64) (bvlshr x #x0000000000000001)))";
+        // let code = "((define-fun shr1 ((x (_ BitVec 64))) (_ BitVec 64) (bvlshr x #x0000000000000001)))";
+        let code = "((define-fun if0 ((x (_ BitVec 64)) (y (_ BitVec 64)) (z (_ BitVec 64))) (_ BitVec 64) (ite (= x #x0000000000000001) y z)))";
         // let code = "((define-fun add ((x Int) (y Int)) Int (+ (mod x 2) y)))";
         let input = sexp::parse(code).unwrap();
         // println!("Input: {:?}", input);
         match input {
             sexp::Sexp::List(v) => {
                 let final_ctx = test_run(&v);
-                final_ctx.get_value(&"bvlshr".to_string()).unwrap().expect_right("error");
-                let f = final_ctx.get_value(&"shr1".to_string()).unwrap().expect_right("error");
-                let res = f.execute(&vec![Values::BV(3)]).unwrap();
+                final_ctx.get_value(&"ite".to_string()).unwrap().expect_right("error");
+                final_ctx.get_value(&"=".to_string()).unwrap().expect_right("error");
+                let f = final_ctx.get_value(&"if0".to_string()).unwrap().expect_right("error");
+                let res = f.execute(&vec![Values::BV(1), Values::BV(2), Values::BV(3)]).unwrap();
                 // println!("Result: {:?}", res);
-                assert_eq!(res, Values::BV(1));
+                assert_eq!(res, Values::BV(2));
             },
             _ => panic!("Expected a list")
         }
