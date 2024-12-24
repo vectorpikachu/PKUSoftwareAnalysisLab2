@@ -269,16 +269,14 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         None => panic!("No synth function defined"),
     };
     let z3_ctx = Arc::new(z3::Context::new(&Config::new()));
-
     let arc_ctx = Arc::new(ctx.clone());
     let res_exp = concurrent_search(
         &synth_fun,
         &constraints,
         arc_ctx,
         |new_prog| {
-            // let mut z3_ctx = z3::Context::new(&Config::new());
-            // let z3_ctx = z3_ctx.clone();
             let mut solver = z3_solver::Z3Solver::new(&defines, &declare_vars, &synth_fun, &constraints, &z3_ctx);
+            // println!("Solver {:?}", solver.get_solver());
             solver.get_counterexample(new_prog)
         }
     );
@@ -330,14 +328,16 @@ fn enum_synth_for_bv(sexps: &[Sexp]) -> Either<String, String> {
         None => panic!("No synth function defined"),
     };
 
-    let mut z3_ctx = z3::Context::new(&Config::new());
-    let res_exp = basic_search(
+    let z3_ctx = Arc::new(z3::Context::new(&Config::new()));
+    let arc_ctx = Arc::new(ctx.clone());
+    let res_exp = concurrent_search(
         &synth_fun,
         &constraints,
-        &defines,
-        &declare_vars,
-        &ctx,
-        &mut z3_ctx,
+        arc_ctx,
+        |new_prog| {
+            let mut solver = z3_solver::Z3Solver::new(&defines, &declare_vars, &synth_fun, &constraints, &z3_ctx);
+            solver.get_counterexample(new_prog)
+        }
     );
 
     match res_exp {

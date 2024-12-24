@@ -1,11 +1,16 @@
 use std::sync::Arc;
 use std::{collections::HashMap, fmt::Debug, hash::Hash, result::Result};
+use std::mem;
 
 use either::Either::{self, Left, Right};
 use z3::{self, ast::Ast};
 use z3::{Context, RecFuncDecl, Sort, SortKind};
 
 use z3::ast::{Bool, Dynamic};
+
+use z3_sys::Z3_mk_config;
+use z3_sys::Z3_mk_context;
+use z3_sys::Z3_context;
 
 use crate::z3_builtin_checker::check_z3_builtin;
 
@@ -91,6 +96,11 @@ pub trait Z3SortToTypes<Types: Type> {
     fn to_types(&self) -> Types;
 }
 
+fn get_z3_ctx_ptr(context: &z3::Context) -> *mut Z3_context {
+    // 使用 unsafe 和 transmute 强制转换为指针类型
+    unsafe { mem::transmute::<&z3::Context, *mut Z3_context>(context) }
+}
+
 /// Z3Solver 是一个封装了 Z3 的求解器的结构体
 pub struct Z3Solver<'ctx, Identifier: VarIndex + Clone + Eq + Hash,
     PrimValues: GetZ3Value<'ctx> + Copy + Eq + Debug + NewPrimValues,
@@ -120,6 +130,10 @@ impl<'ctx, Identifier: VarIndex + Clone + Eq + Hash + Debug,
         constraints: &Vec<Constraint<Identifier, PrimValues>>,
         ctx: &'ctx z3::Context,
     ) -> Self {
+        unsafe {
+            let ptr = get_z3_ctx_ptr(ctx);
+            *ptr = Z3_mk_context(Z3_mk_config());
+        };
         let mut z3_solver: Z3Solver<'ctx, Identifier, PrimValues> = Z3Solver {
             ctx: ctx,
             solver: z3::Solver::new(ctx),
