@@ -323,7 +323,7 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
     
     match res_exp {
         Ok(e) => {
-            // println!("Found a solution: {}", e.to_string());
+            println!("Found a solution: {}", e.to_string());
             return Left(format!("{}{})", synth_fun.to_string(), e.to_string()));
         }
         Err(e) => {
@@ -385,7 +385,7 @@ fn enum_synth_for_bv(sexps: &[Sexp]) -> Either<String, String> {
 
     match res_exp {
         Ok(e) => {
-            // println!("Found a solution: {}", e.to_string());
+            println!("Found a solution: {}", e.to_string());
             return Left(format!("{}{})", synth_fun.to_string(), e.to_string()));
         }
         Err(e) => {

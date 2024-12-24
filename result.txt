@@ -1,1 +1,1 @@
-(define-fun f ((x (_ BitVec 64))) (_ BitVec 64) (bvor x #x0000000000000001))
+(define-fun max2 ((x Int) (y Int)) Int (ite (<= x y) y x))

@@ -1,4 +1,127 @@
 {
- "tot_score": 0,
- "error": "Traceback (most recent call last):\n  File \"/root/main.py\", line 224, in <module>\n    desc, score, tot_time = run_case(cat, filename)\n                            ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/root/main.py\", line 179, in run_case\n    retcode = p.wait(timeout=TIMEOUT_STUDENT)\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/subprocess.py\", line 1264, in wait\n    return self._wait(timeout=timeout)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/subprocess.py\", line 2047, in _wait\n    time.sleep(delay)\nKeyboardInterrupt\n"
+ "tot_score": 15,
+ "tot_time": 0.8160271644592285,
+ "error": null,
+ "cases": {
+  "open_basic-0.sl": [
+   [
+    "correct",
+    3
+   ],
+   1,
+   0.06393766403198242
+  ],
+  "open_basic-max2.sl": [
+   [
+    "correct",
+    6
+   ],
+   1,
+   0.032164573669433594
+  ],
+  "open_basic-three.sl": [
+   [
+    "correct",
+    5
+   ],
+   1,
+   0.06392383575439453
+  ],
+  "open_basic-tutorial.sl": [
+   [
+    "correct",
+    7
+   ],
+   1,
+   0.11401200294494629
+  ],
+  "open_lia-array_search_2.sl": [
+   [
+    "correct",
+    11
+   ],
+   1,
+   0.03171348571777344
+  ],
+  "open_lia-array_search_4.sl": [
+   [
+    "correct",
+    21
+   ],
+   1,
+   0.06394505500793457
+  ],
+  "open_lia-array_search_6.sl": [
+   [
+    "correct",
+    31
+   ],
+   1,
+   0.06381797790527344
+  ],
+  "open_lia-array_search_8.sl": [
+   [
+    "correct",
+    41
+   ],
+   1,
+   0.06394195556640625
+  ],
+  "open_lia-array_search_10.sl": [
+   [
+    "correct",
+    51
+   ],
+   1,
+   0.06395673751831055
+  ],
+  "open_lia-array_search_12.sl": [
+   [
+    "correct",
+    61
+   ],
+   1,
+   0.06385564804077148
+  ],
+  "open_lia-array_search_14.sl": [
+   [
+    "correct",
+    71
+   ],
+   1,
+   0.0637960433959961
+  ],
+  "open_lia-max3.sl": [
+   [
+    "correct",
+    16
+   ],
+   1,
+   0.03177142143249512
+  ],
+  "open_lia-max5.sl": [
+   [
+    "correct",
+    76
+   ],
+   1,
+   0.03173565864562988
+  ],
+  "open_lia-max7.sl": [
+   [
+    "correct",
+    316
+   ],
+   1,
+   0.03172445297241211
+  ],
+  "open_lia-max9.sl": [
+   [
+    "correct",
+    1276
+   ],
+   1,
+   0.03173065185546875
+  ]
+ }
 }
