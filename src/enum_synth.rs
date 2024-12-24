@@ -40,6 +40,7 @@ use crate::bv_logic::bv;
 use crate::lia_builtin::lia_builtin;
 use crate::lia_logic::lia;
 
+use crate::lia_logic::lia::findIdx;
 use crate::lia_logic::lia::max;
 use crate::multi_threading::search::concurrent_search;
 use crate::parser::parser::parse_logic;
@@ -276,14 +277,30 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
     let mut solver = z3_solver::Z3Solver::new(&defines, &declare_vars, &synth_fun, &constraints, &z3_ctx);
     let max_res = solver.get_counterexample(&synth_fun.exp_to_basic_fun(Some(arc_ctx.clone()), &max_exp));
 
-    println!("max_exp: {:?}", max_exp);
-    println!("max_res: {:?}", max_res);
+    // println!("max_exp: {:?}", max_exp);
+    // println!("max_res: {:?}", max_res);
 
     match max_res {
         Ok(v) => {
             match v {
                 Right(_s) => {
                     return Left(max_exp.to_string());
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+
+    let findIdx_exp = findIdx(synth_fun.get_args().iter().map(|(id, _)| id.to_string()).collect::<Vec<_>>());
+    let mut solver = z3_solver::Z3Solver::new(&defines, &declare_vars, &synth_fun, &constraints, &z3_ctx);
+    let findIdx_res = solver.get_counterexample(&synth_fun.exp_to_basic_fun(Some(arc_ctx.clone()), &findIdx_exp));
+
+    match findIdx_res {
+        Ok(v) => {
+            match v {
+                Right(_s) => {
+                    return Left(findIdx_exp.to_string());
                 }
                 _ => {}
             }

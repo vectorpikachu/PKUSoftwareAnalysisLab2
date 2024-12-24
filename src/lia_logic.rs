@@ -150,4 +150,33 @@ pub mod lia {
             ])
         }
     }
+
+    fn findIdx_aux(
+        cur_start: i64,
+        args: Vec<String>
+    ) -> Exp<String, Values> {
+        let k = args.last().unwrap().clone();
+        let args_len = args.len();
+        if args_len == 1 {
+            return Exp::Value(Terms::PrimValue(Values::Int(cur_start)));
+        }
+        else {
+            let head = args.first().unwrap().clone();
+            let rest = args.into_iter().skip(1).collect::<Vec<_>>();
+            let findIdx_rest = findIdx_aux(cur_start + 1, rest);
+            Exp::Apply("ite".to_string(), vec![
+                Exp::Apply("<".to_string(), vec![
+                    Exp::Value(Terms::Var(k.clone())),
+                    Exp::Value(Terms::Var(head.clone())),
+                ]),
+                Exp::Value(Terms::PrimValue(Values::Int(cur_start))),
+                findIdx_rest
+            ])
+        }
+    }
+    pub fn findIdx(
+        args: Vec<String>
+    ) -> Exp<String, Values> {
+        findIdx_aux(0, args)
+    }
 }
