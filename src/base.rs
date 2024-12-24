@@ -685,6 +685,10 @@ pub mod language {
             self.rules.keys().flat_map(|id| self.rules.get(id).unwrap().iter().map(|rule| rule.get_body().clone())).collect()
         }
 
+        pub fn get_all_rules_with_non_terminals(&self) -> &HashMap<Identifier, Vec<Rule<Identifier, PrimValue>>> {
+            &self.rules
+        }
+
         pub fn get_all_rules(&self) -> &HashMap<Identifier, Vec<Rule<Identifier, PrimValue>>> {
             &self.rules
         }
