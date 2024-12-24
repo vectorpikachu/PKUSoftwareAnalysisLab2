@@ -141,9 +141,9 @@ pub mod lia {
             let rest = args.into_iter().take(args_len - 1).collect::<Vec<_>>();
             let max_of_rest = max(rest);
             Exp::Apply("ite".to_string(), vec![
-                Exp::Apply(">".to_string(), vec![
+                Exp::Apply("<=".to_string(), vec![
+                    max_of_rest.clone(),
                     Exp::Value(Terms::Var(last.clone())),
-                    max_of_rest.clone()
                 ]),
                 Exp::Value(Terms::Var(last.clone())),
                 max_of_rest
@@ -165,9 +165,9 @@ pub mod lia {
             let rest = args.into_iter().skip(1).collect::<Vec<_>>();
             let findIdx_rest = findIdx_aux(cur_start + 1, rest);
             Exp::Apply("ite".to_string(), vec![
-                Exp::Apply("<".to_string(), vec![
-                    Exp::Value(Terms::Var(k.clone())),
+                Exp::Apply(">=".to_string(), vec![
                     Exp::Value(Terms::Var(head.clone())),
+                    Exp::Value(Terms::Var(k.clone())),
                 ]),
                 Exp::Value(Terms::PrimValue(Values::Int(cur_start))),
                 findIdx_rest
