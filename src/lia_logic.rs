@@ -3,7 +3,7 @@ pub mod lia {
 
     use sexp::{Error, Sexp};
 
-    use crate::{base::{function::{ExecError, PositionedExecutable}, language::{ConstraintPassesValue, DefineFun, Exp, SynthFun, Terms, Type}, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}, z3_solver::Z3Solver};
+    use crate::{base::{function::{ExecError, GetValueError, NamedExecutable, PositionedExecutable}, language::{ConstraintPassesValue, DefineFun, Exp, SynthFun, Terms, Type}, scope::Scope}, parser::{self, parser::{AtomParser, ContextFreeSexpParser, MutContextSexpParser}, rc_function_var_context::{Command, RcFunctionVar}}, z3_solver::Z3Solver};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum Types {

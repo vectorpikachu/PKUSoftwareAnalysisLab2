@@ -438,6 +438,7 @@ const ATOMIC_READ_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Orderi
                                         atomic_wait::wake_all(turn_is_finish_ref as *const AtomicU32);
                                         break;
                                     }
+                                    let temp = values_on_each_test_and_each_call.clone();
                                     // 否则，检查当前的 f 是否需要被等价性消减
                                     if valid_program {
                                         prev_results_ref.read(
@@ -446,6 +447,7 @@ const ATOMIC_READ_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Orderi
                                                 Ok(_) => {
                                                     // 如果插入成功，说明结果没有出现过
                                                     // 将 exp 写入可用表达式组之中
+                                                    trace!("新可观测表达式结果：{:?}", temp);
                                                     match available_exps_ref.read(
                                                         &name_of_non_terminal, 
                                                         |_, v| {
@@ -515,7 +517,7 @@ const ATOMIC_READ_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Orderi
                                 for non_terminal in &all_non_terminals {
                                 // 初始化一些信息
                                     available_exps_ref.insert((*non_terminal).clone(), ExpQueue::default()).unwrap();   // 注意由于每轮结束时，available_exps 会被清空，因此这里需要重建
-                                    prev_results.get(non_terminal).unwrap().clear();
+                                    // prev_results.get(non_terminal).unwrap().clear();
                                 }
                             }
 
@@ -625,12 +627,8 @@ const ATOMIC_READ_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Orderi
                             }
                             // println!("candidate_exprs: {:?}", candidate_exprs);
                             prog_size += 1;
-                            // if prog_size > 6 {
-                            //     panic!()
-                            // }
                         }
                     }
-
                     Err("Doesn't find a solution".to_string())
                     // 此处，所有的线程应当都 join 了
                 }
