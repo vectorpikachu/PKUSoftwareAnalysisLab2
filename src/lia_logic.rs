@@ -128,4 +128,10 @@ pub mod lia {
         };
         
     }
+
+    pub fn max(
+        args: Vec<String>
+    ) -> Exp<String, Values> {
+        Exp::Apply("max".to_string(), args.into_iter().map(|x| Exp::Value(Terms::Var(x))).collect())
+    }
 }

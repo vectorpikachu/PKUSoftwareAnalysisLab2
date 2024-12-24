@@ -268,11 +268,6 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         Some(s) => s,
         None => panic!("No synth function defined"),
     };
-    let synth_fun = if is_max(&synth_fun) {
-        synth_fun
-    } else {
-        panic!("The function is not a max function");
-    };
     let z3_ctx = Arc::new(z3::Context::new(&Config::new()));
     let arc_ctx = Arc::new(ctx.clone());
     for define in defines.iter() {
