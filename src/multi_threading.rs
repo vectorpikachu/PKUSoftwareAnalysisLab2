@@ -506,7 +506,6 @@ const ATOMIC_READ_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Orderi
                         }
                         loop {
                             info!("枚举程序大小：{}", prog_size);
-                            info!("当前任务数量1111：{}", processing_task_ref.load(ATOMIC_READ_ORDER));
                             // 重置状态
                             turn_is_finish_ref.store(0, ATOMIC_WRITE_ORDER);
                             // let _ = all_tasks_done_flag.take();

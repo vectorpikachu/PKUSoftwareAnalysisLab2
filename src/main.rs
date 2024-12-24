@@ -43,7 +43,6 @@ fn main() {
     info!("Start enum synthesis");
     let file = read_file();
     let res = enum_synth::enum_synth_fun(&file);
-    
     // // 写进 result.txt
     use std::fs::File;
     use std::io::Write;
@@ -52,6 +51,7 @@ fn main() {
          Left(s) => {
              file.write_all(s.as_bytes()).unwrap();
              println!("{}", s);
+             panic!();
          },
          _ => {
              panic!("Error");
