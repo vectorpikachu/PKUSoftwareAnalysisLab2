@@ -360,6 +360,11 @@ pub mod search {
                                                     valid_program = false;
                                                     break '_enum_test;
                                                 },
+                                                Err(ExecError::TypeMismatch(_)) => {
+                                                    pass_test = false;
+                                                    valid_program = false;
+                                                    break '_enum_test;
+                                                },
                                                 Err(e) => panic!("{:?}", e)
                                             };
                                             if !res_value.is_pass() {
@@ -542,9 +547,6 @@ pub mod search {
                                 candidate_exprs.insert(prog_size, temp_available_exps);
                             }
                             prog_size += 1;
-                            if prog_size > 10 {
-                                panic!()
-                            }
                         }
                     }
 
