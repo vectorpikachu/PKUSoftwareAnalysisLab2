@@ -36,7 +36,7 @@ pub mod search {
     use std::{collections::HashMap, fmt::Debug, hash::Hash};
     const MAX_THREADS: usize = 8;
     // 高并发 HashMap
-    type ConcurrentHashSet<K> = scc::HashIndex<K, ()>;
+    type ConcurrentHashSet<K> = scc::HashSet<K>;
     type ConcurrentHashMap<K, V> = scc::HashMap<K, V>;
     type ConcurrentHashIndex<K, V> = scc::HashIndex<K, V>;
     type ExpQueue<Identifier, Values> = scc::Queue<Exp<Identifier, Values>>;
@@ -46,7 +46,7 @@ pub mod search {
         Exp(Identifier, Exp<Identifier, Values>),
     }
     type FunctionVar<'a, Identifier, Values> = parser::rc_function_var_context::RcFunctionVar<'a, Identifier, Values>;
-    type AllCandidateExprs<Identifier, Values> = HashMap<i32, ConcurrentHashIndex<Identifier, ExpQueue::<Identifier, Values>>>;
+    type AllCandidateExprs<Identifier, Values> = HashMap<i32, ConcurrentHashMap<Identifier, ExpQueue::<Identifier, Values>>>;
     use std::iter::Peekable;
     /// 要求 occurrences_mut_pointer 中的指针指向的是 actual_rule 的 body 的子节点
     unsafe fn dfs_one_non_terminal_rule_aux<
@@ -132,7 +132,7 @@ pub mod search {
                 //         return res;
                 //     }
                 // }
-                cur_candidates.peek_with(&cur_non_terminals, 
+                cur_candidates.read(&cur_non_terminals, 
                     |_, cur_candidates| {
                         for candidate in cur_candidates.iter(&guard) {
                             // println!("sz: {}, cur_non_terminals: {:?}, candidate: {:?}", sz, cur_non_terminals, candidate);
@@ -216,8 +216,33 @@ pub mod search {
             );
         };
     }
+const ATOMIC_WRITE_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Ordering::SeqCst;
+const ATOMIC_READ_ORDER: std::sync::atomic::Ordering = std::sync::atomic::Ordering::SeqCst;
+    fn sub_and_wake_when_zero(
+        counter: &AtomicUsize,
+        flag: &AtomicU32,
+    ){
+        let cur = counter.fetch_sub(1, ATOMIC_WRITE_ORDER);
+        if cur == 1 {
+            flag.fetch_add(1, ATOMIC_WRITE_ORDER);
+            atomic_wait::wake_all(flag as *const AtomicU32);
+        }
+        trace!("当前任务数：{}", cur - 1);
+    }
 
-    
+    fn clean_up_sub_threads<Identifier: Clone + Eq + Send + Sync, Values: Copy + Eq + Send + Sync>(
+        num: usize,
+        channel: &mut spmc::Sender<Message<Identifier, Values>>,
+        lock: &RwLock<()>,
+    ){
+        for _ in 0..num {
+            let _ = channel.send(Message::Halt);
+        }
+        // 等待所有线程退出
+        let _wait = lock.write().unwrap();
+        info!("所有子线程清理完成");
+    }
+
     pub fn concurrent_search<
         'a,
         Identifier: Eq + Hash + Clone + VarIndex + Debug + Send + Sync + 'static,
@@ -247,10 +272,11 @@ pub mod search {
         let scope_arc_ref = &scope;
         // 每次发现新的反例
         loop {
+            
             // 对于不同的非终结符，存储出现过的可观测结果
-            let prev_results: ConcurrentHashIndex<Identifier, ConcurrentHashSet<Vec<Vec<Values>>>> = ConcurrentHashIndex::new();
+            let prev_results: ConcurrentHashMap<Identifier, ConcurrentHashSet<Vec<Vec<Values>>>> = ConcurrentHashMap::new();
             // 对于当前层不同的非终结符，存储可用的表达式。每次切换到更高层时，主线程把它移动到 candidate_exprs 然后清空
-            let available_exps: Arc<RwLock<ConcurrentHashIndex<Identifier, ExpQueue::<Identifier, Values>>>> = Arc::new(RwLock::new(ConcurrentHashIndex::new()));
+            let available_exps: Arc<RwLock<ConcurrentHashMap<Identifier, ExpQueue::<Identifier, Values>>>> = Arc::new(RwLock::new(ConcurrentHashMap::new()));
             let available_exps_ref = &available_exps;
             let prev_results_ref = &prev_results;
             let (tx, rx) = spmc::channel::<Message<Identifier, Values>>();
@@ -262,8 +288,8 @@ pub mod search {
 
             // let all_tasks_done_flag: Arc<Cell<OnceCell<()>>> = Arc::new(Cell::new(OnceCell::new()));
 
-            let processing_task: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));  // 用于记录当前处理的任务数
-            let turn_is_finish: Arc<AtomicU32> = Arc::new(AtomicU32::new(0));  // 用于标注当前轮次是否结束
+            let processing_task: AtomicUsize = AtomicUsize::new(0);  // 用于记录当前处理的任务数
+            let turn_is_finish: AtomicU32 = AtomicU32::new(0);  // 用于标注当前轮次是否结束
 
             let processing_task_ref = &processing_task;
             let turn_is_finish_ref = &turn_is_finish;
@@ -279,11 +305,11 @@ pub mod search {
                         threads.push(s.spawn(
                             move || {
                                 // 每个线程拿一个读锁，所有线程退出时才能安全的拿写锁
-                                let _thread_survive_lock = thread_exit_lock_ref.read().unwrap();
-                                let available_exps_ref = available_exps_ref.clone();
-                                let turn_is_finish_ref = turn_is_finish_ref.clone();
+                                let available_exps_ref = available_exps_ref;
+                                let turn_is_finish_ref = turn_is_finish_ref;
                                 trace!("线程启动");
                                 '_enum_program: while let Ok(msg) = rx.recv() {
+                                    let _thread_survive_lock = thread_exit_lock_ref.read().unwrap();
                                     let available_exps_ref = available_exps_ref.read().unwrap();
                                     // 注意这里 rx.recv 是 block 的
                                     let (name_of_non_terminal, exp) = match msg {
@@ -298,10 +324,13 @@ pub mod search {
                                         exp
                                     );
                                     if program_passes_tests_ref.get().is_some() {
-                                        info!(
-                                            "其他线程找到解，退出"
+                                        debug!(
+                                            "其他线程找到解，跳过"
                                         );
+                                        // // 注意，由于终止信号总是最后发出，因此使用 continue 保证消耗掉所有消息
+                                        // sub_and_wake_when_zero(processing_task_ref, turn_is_finish_ref);
                                         break;
+                                        // continue;
                                     }
                                     let scope_ref: &Context = scope_arc_ref.borrow();
                                     let mut pass_test = true;
@@ -403,38 +432,54 @@ pub mod search {
                                             exp
                                         );
                                         let _ = program_passes_tests_ref.set(exp);  // 注意，假如其他线程已经找到解，这里的 set 可能会被忽略，这正是我们预期的行为
-                                        turn_is_finish_ref.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                        atomic_wait::wake_all(turn_is_finish_ref.borrow() as *const AtomicU32);
+                                        sub_and_wake_when_zero(processing_task_ref, turn_is_finish_ref);
+                                        turn_is_finish_ref.fetch_add(1, ATOMIC_WRITE_ORDER);
+                                        atomic_wait::wake_all(turn_is_finish_ref as *const AtomicU32);
                                         break;
                                     }
                                     // 否则，检查当前的 f 是否需要被等价性消减
                                     if valid_program {
-                                        prev_results_ref.peek_with(
+                                        prev_results_ref.read(
                                             &name_of_non_terminal, 
-                                            |_, v| match v.insert(values_on_each_test_and_each_call, ()) {
+                                            |_, v| match v.insert(values_on_each_test_and_each_call) {
                                                 Ok(_) => {
                                                     // 如果插入成功，说明结果没有出现过
                                                     // 将 exp 写入可用表达式组之中
-                                                    available_exps_ref.peek_with(
+                                                    match available_exps_ref.read(
                                                         &name_of_non_terminal, 
                                                         |_, v| {
                                                             v.push(exp);
+                                                            // 对于合法的程序，只有写入完成后才视作该任务结束
+                                                            sub_and_wake_when_zero(processing_task_ref, turn_is_finish_ref);
                                                         }
-                                                    ).unwrap(); // 这里假定所有非终结符对应的 hashmap 已经被主线程创建
+                                                    ) {
+                                                        Some(_) => (),
+                                                        None => {
+                                                            println!("{:?}", available_exps_ref);
+                                                            println!("{:?}", processing_task_ref);
+                                                            panic!("插入失败");
+                                                        }
+                                                    }
+                                                    
+                                                    // 这里假定所有非终结符对应的 hashmap 已经被主线程创建
                                                 },
                                                 // 如果插入失败，说明结果出现过，不用写入
                                                 Err(_) => {
                                                     debug!("表达式：{:?} 已经出现过", exp);
+                                                    sub_and_wake_when_zero(processing_task_ref, turn_is_finish_ref);
                                                 }
                                             }
                                         ).unwrap();  // 这里假定所有非终结符对应的 hashmap 已经被主线程创建
                                     }
-                                    if processing_task_ref.clone().fetch_sub(1, std::sync::atomic::Ordering::Relaxed) == 1 {
-                                        // 如果当前任务是最后一个任务，说明所有任务已经完成
-                                        turn_is_finish_ref.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                        atomic_wait::wake_all(turn_is_finish_ref.borrow() as *const AtomicU32);
-                                        info!("本轮所有任务完成")
+                                    else {
+                                        sub_and_wake_when_zero(processing_task_ref, turn_is_finish_ref);
                                     }
+                                    // if processing_task_ref.clone().fetch_sub(1, ATOMIC_ORDER) == 1 {
+                                    //     // 如果当前任务是最后一个任务，说明所有任务已经完成
+                                    //     turn_is_finish_ref.fetch_add(1, ATOMIC_ORDER);
+                                    //     atomic_wait::wake_all(turn_is_finish_ref.borrow() as *const AtomicU32);
+                                    //     info!("本轮所有任务完成")
+                                    // }
                                 }
                                 debug!("线程退出");
                             }
@@ -451,7 +496,7 @@ pub mod search {
                         let mut candidate_exprs: AllCandidateExprs<Identifier, Values> = HashMap::new();
                         let mut prog_size = 1;
                         let available_exps_ref = available_exps_ref.clone();
-                        candidate_exprs.insert(prog_size, ConcurrentHashIndex::new());
+                        candidate_exprs.insert(prog_size, ConcurrentHashMap::new());
                         let all_rules = synth_fun.get_all_rules_with_non_terminals();
                         let all_non_terminals = all_rules.keys().cloned().collect::<HashSet<_>>();
                         for non_terminal in &all_non_terminals {
@@ -460,8 +505,9 @@ pub mod search {
                         }
                         loop {
                             info!("枚举程序大小：{}", prog_size);
+                            info!("当前任务数量1111：{}", processing_task_ref.load(ATOMIC_READ_ORDER));
                             // 重置状态
-                            turn_is_finish_ref.store(0, std::sync::atomic::Ordering::Relaxed);
+                            turn_is_finish_ref.store(0, ATOMIC_WRITE_ORDER);
                             // let _ = all_tasks_done_flag.take();
                             // 我们假设所有线程处理程序大小是同步的，主线程会等待当前大小程序全部处理完，再处理下一个大小的程序
                             {
@@ -469,7 +515,7 @@ pub mod search {
                                 for non_terminal in &all_non_terminals {
                                 // 初始化一些信息
                                     available_exps_ref.insert((*non_terminal).clone(), ExpQueue::default()).unwrap();   // 注意由于每轮结束时，available_exps 会被清空，因此这里需要重建
-                                    prev_results.get(non_terminal).unwrap().update(ConcurrentHashSet::new());
+                                    prev_results.get(non_terminal).unwrap().clear();
                                 }
                             }
 
@@ -497,6 +543,7 @@ pub mod search {
                             // )).unwrap();
                             // println!("candidate_exprs: {:?}", candidate_exprs);
                             // 枚举所有的规则
+                            processing_task_ref.fetch_add(100, ATOMIC_WRITE_ORDER); // 防止在枚举过程中归零
                             for (non_terminal, rules) in all_rules {
                                 for rule in rules {
                                     // 枚举所有程序并加入到消息队列中
@@ -511,32 +558,42 @@ pub mod search {
                                             }
                                             let tx = tx_rc_ref_cell.clone();
                                             let mut tx = tx.borrow_mut();
-                                            processing_task_ref.clone().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                            processing_task_ref.fetch_add(1, ATOMIC_WRITE_ORDER);
+
                                             tx.send(Message::Exp(non_terminal.clone(), res_exp)).unwrap();
                                             return true;
                                         }
                                     );
-                                    debug!("枚举完成: {:?}", rule.get_body());
+                                    info!("枚举完成: {:?}", rule.get_body());
                                 }
                             }
-                            if processing_task_ref.clone().load(std::sync::atomic::Ordering::Relaxed) != 0 {
-                                debug!("当前任务数量：{}", processing_task_ref.clone().load(std::sync::atomic::Ordering::Relaxed));
+                            processing_task_ref.fetch_sub(100, ATOMIC_WRITE_ORDER);
+                            if processing_task_ref.load(ATOMIC_READ_ORDER) != 0 {
+                                info!("当前任务数量：{}", processing_task_ref.load(ATOMIC_READ_ORDER));
                                 // 先检查一下是否有任务
                                 // 无论是任务已经完成还是本层没有任务，判断一下都是正确的
-                                atomic_wait::wait(turn_is_finish_ref.borrow(), 0);
+                                while turn_is_finish_ref.load(ATOMIC_READ_ORDER) == 0 {
+                                    atomic_wait::wait(turn_is_finish_ref, 0);
+                                    if true {
+                                        if  processing_task_ref.load(ATOMIC_READ_ORDER) != 0 && program_passes_tests_ref.get().is_none() {
+                                            panic!("任务没有完成");
+                                        }
+                                    }
+                                }
+                                // atomic_wait::wait(turn_is_finish_ref, 0);
+                                // if !cfg!(debug_assertions) {
+                                //     if  processing_task_ref.load(ATOMIC_READ_ORDER) != 0 {
+                                //         panic!("任务没有完成");
+                                //     }
+                                // }
                             }
                             info!("本轮所有任务完成，主线程被唤醒");
                             // 如果找到通过测试的解
                             if let Some(exp) = program_passes_tests_ref.get() {
                                 // let mut solver = z3_solver_generator();
-                                // 向所有线程发送停止消息
-                                for _ in 0..MAX_THREADS {
-                                    let _ = tx_rc_ref_cell.borrow_mut().send(Message::Halt);
-                                }
-                                // 拿到写锁表明所有线程都退出了
-                                let _sub_threads_exit = thread_exit_lock_ref.write().unwrap();
                                 let now_prog = synth_fun.exp_to_basic_fun(Some(scope_arc_ref.clone()), &exp);
                                 let res = z3_solver_call(&now_prog);
+                                clean_up_sub_threads(MAX_THREADS, &mut tx.borrow_mut(), &thread_exit_lock);
                                 match res {
                                     Ok(either_val) => match either_val {
                                         Left(v) => {
@@ -559,8 +616,10 @@ pub mod search {
                             // 否则，将本层得到的表达式加入可用表达式，进入下一层
                             // 将本层得到的表达式加入可用表达式
                             {
+                                let _wait_sub_threads_complete = thread_exit_lock.write().unwrap();
+                                info!("所有子线程停止运行");
                                 let mut available_exps_ref = available_exps_ref.write().unwrap();
-                                let mut temp_available_exps: ConcurrentHashIndex<Identifier, ExpQueue::<Identifier, Values>> = ConcurrentHashIndex::new();
+                                let mut temp_available_exps: ConcurrentHashMap<Identifier, ExpQueue::<Identifier, Values>> = ConcurrentHashMap::new();
                                 swap(&mut temp_available_exps, &mut available_exps_ref);
                                 candidate_exprs.insert(prog_size, temp_available_exps);
                             }
