@@ -267,6 +267,9 @@ pub mod search {
 
             let processing_task_ref = &processing_task;
             let turn_is_finish_ref = &turn_is_finish;
+
+            let thread_exit_lock: RwLock<()> = RwLock::new(());
+            let thread_exit_lock_ref = &thread_exit_lock;
             if let Ok(result_exp) = thread::scope(
                 |s| {
                     let mut threads = Vec::new();
@@ -275,6 +278,8 @@ pub mod search {
                         // 子线程负责验证所有的 counter examples
                         threads.push(s.spawn(
                             move || {
+                                // 每个线程拿一个读锁，所有线程退出时才能安全的拿写锁
+                                let _thread_survive_lock = thread_exit_lock_ref.read().unwrap();
                                 let available_exps_ref = available_exps_ref.clone();
                                 let turn_is_finish_ref = turn_is_finish_ref.clone();
                                 trace!("线程启动");
@@ -528,6 +533,8 @@ pub mod search {
                                 for _ in 0..MAX_THREADS {
                                     let _ = tx_rc_ref_cell.borrow_mut().send(Message::Halt);
                                 }
+                                // 拿到写锁表明所有线程都退出了
+                                let _sub_threads_exit = thread_exit_lock_ref.write().unwrap();
                                 let now_prog = synth_fun.exp_to_basic_fun(Some(scope_arc_ref.clone()), &exp);
                                 let res = z3_solver_call(&now_prog);
                                 match res {
