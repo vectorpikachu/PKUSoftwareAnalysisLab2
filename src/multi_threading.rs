@@ -1,5 +1,4 @@
 pub mod search {
-    use std::arch::x86_64::_mm_permutevar_pd;
     use std::borrow::Borrow;
     use std::cell::{Cell, RefCell};
     use std::collections::HashSet;
@@ -46,33 +45,6 @@ pub mod search {
     }
     type FunctionVar<'a, Identifier, Values> = parser::rc_function_var_context::RcFunctionVar<'a, Identifier, Values>;
     type AllCandidateExprs<Identifier, Values> = HashMap<i32, ConcurrentHashIndex<Identifier, ExpQueue::<Identifier, Values>>>;
-    /// 得到候选程序中可用的表达式
-    // fn get_availabe_progs<
-    //     Identifier: Eq + Hash + Clone + VarIndex + Debug,
-    //     Values: Eq + Copy + Debug + Hash + ConstraintPassesValue,
-    //     Types: Eq + Copy + Debug + Hash,
-    // >(
-    //     synth_fun: &SynthFun<Identifier, Values, Types>,
-    //     candidate_exprs: &HashMap<i32, HashMap<Identifier, Vec<Exp<Identifier, Values>>>>,
-    //     prog_size: i32,
-    //     ty: &Types,
-    // ) -> Vec<Exp<Identifier, Values>> {
-    //     let mut availabe_progs = Vec::new();
-    //     let possible_progs = candidate_exprs.get(&prog_size);
-    //     if possible_progs.is_none() {
-    //         return availabe_progs;
-    //     };
-    //     for (id, v) in possible_progs.unwrap().iter() {
-    //         if *synth_fun.get_type(id).unwrap() != *ty {
-    //             continue;
-    //         }
-    //         for exp in v {
-    //             availabe_progs.push(exp.clone());
-    //         }
-    //     }
-    //     availabe_progs
-    // }
-
     use std::iter::Peekable;
     /// 要求 occurrences_mut_pointer 中的指针指向的是 actual_rule 的 body 的子节点
     unsafe fn dfs_one_non_terminal_rule_aux<
@@ -94,10 +66,6 @@ pub mod search {
             if remaining_non_terminals == 0 {
                 // 所有非终结符都替换完毕，将结果加入到 results 中
                 let res = actual_rule.get_body().clone();
-                // if visited_exprs.contains(&res) {
-                //     return;
-                // }
-                // visited_exprs.insert(res.clone());
                 return results_handler(res);
             }
         }
@@ -261,7 +229,7 @@ pub mod search {
                         // 子线程负责验证所有的 counter examples
                         threads.push(s.spawn(
                             move || {
-                                while let Ok(msg) = rx.recv() {
+                                '_enum_program: while let Ok(msg) = rx.recv() {
                                     // 注意这里 rx.recv 是 block 的
                                     let (name_of_non_terminal, exp) = match msg {
                                         Message::Exp(name, exp) => (name, exp),
@@ -280,23 +248,8 @@ pub mod search {
                                     let f_instance = synth_fun.exp_to_basic_fun(Some(scope_arc_ref.clone()), &exp);
                                     let f_instance = FunctionVar::from_basic_fun(f_instance);
                                     let guard = Guard::new();
-                                    for test in counter_examples_ref.iter(&guard) {
+                                    '_enum_test: for test in counter_examples_ref.iter(&guard) {
                                         let mut values_on_each_call_map = HashMap::<Identifier, Values>::new();
-                                        // let values_on_each_call_map = callings_map_ref.iter().map(
-                                        //     |(id, exp)| {
-                                        //         (id, 
-                                        //             exp.instantiate_and_execute(
-                                        //             synth_fun, 
-                                        //             Some(scope_ref),
-                                        //             &exp,
-                                        //             |id| match test.get(&id) {
-                                        //                 Some((_, v)) => Ok(Either::Left(*v)),
-                                        //                 None => Err(GetValueError::VarNotDefinedWhenGet("Var not defined when get in test conunter examples".to_string()))
-                                        //             }
-                                        //             ).unwrap()
-                                        //         )
-                                        //     }
-                                        // ).collect::<HashMap<_, _>>();
                                         for (id, call_exp) in callings_map_ref {
                                             let res = call_exp.execute_in_optional_context(
                                                 Some(scope_ref),
@@ -313,19 +266,6 @@ pub mod search {
                                                     }
                                                 } 
                                             );
-                                            // let res = cal_exp.instantiate_and_execute(
-                                            //     synth_fun, 
-                                            //     Some(scope_ref), 
-                                            //     &exp, 
-                                            //     |id| {
-                                            //         // 这里是因为如果有 f (f 1) 出现，会被整理成 a = f 1, b = f a 这样的形式，因此可能用到前面计算好的结果
-                                            //         // or 是短路的，因此优先取 test 中的值
-                                            //         match values_on_each_call_map.get(&id).or(test.get(&id).map(|(_, v)| v)) {
-                                            //             Some(v) => Ok(Either::Left(*v)),
-                                            //             None => Err(GetValueError::VarNotDefinedWhenGet(format!("Var not defined when get in test conunter examples: {:?}", id)))
-                                            //         }
-                                            //     }
-                                            // );
                                             match res {
                                                 Ok(v) => {
                                                     values_on_each_call_map.insert(id.clone(), v);
@@ -333,16 +273,16 @@ pub mod search {
                                                 Err(base::function::ExecError::DivZero) => {
                                                     pass_test = false;
                                                     valid_program = false;
-                                                    break;
+                                                    break '_enum_test;  // 注意任务结束还有收尾，因此不能直接 continue '_enum_program;
                                                 },
                                                 Err(e) => {
                                                     panic!("{:?}", e);
                                                 }
                                             }
                                         }
-                                        if !valid_program {
-                                            break;
-                                        }
+                                        // if !valid_program {
+                                        //     break;
+                                        // }
                                         for constaint in new_constraint_ref {
                                             let res = constaint.get_body().execute_in_optional_context(
                                                 Some(scope_ref),
@@ -358,16 +298,13 @@ pub mod search {
                                                 Err(ExecError::DivZero) => {
                                                     pass_test = false;
                                                     valid_program = false;
-                                                    break;
+                                                    break '_enum_test;
                                                 },
                                                 Err(e) => panic!("{:?}", e)
                                             };
                                             if !res_value.is_pass() {
                                                 pass_test = false;
                                             }
-                                        }
-                                        if !valid_program {
-                                            break;
                                         }
                                         let values_on_each_call = callings_map_ref.iter().map(|(id, _)| values_on_each_call_map.get(id).unwrap().clone()).collect::<Vec<_>>();
                                         values_on_each_test_and_each_call.push(values_on_each_call);
@@ -378,23 +315,25 @@ pub mod search {
                                         break;
                                     }
                                     // 否则，检查当前的 f 是否需要被等价性消减
-                                    prev_results_ref.peek_with(
-                                        &name_of_non_terminal, 
-                                        |_, v| match v.insert(values_on_each_test_and_each_call, ()) {
-                                            Ok(_) => {
-                                                // 如果插入成功，说明结果没有出现过
-                                                // 将 exp 写入可用表达式组之中
-                                                available_exps_ref.peek_with(
-                                                    &name_of_non_terminal, 
-                                                    |_, v| {
-                                                        v.push(exp);
-                                                    }
-                                                ).unwrap(); // 这里假定所有非终结符对应的 hashmap 已经被主线程创建
-                                            },
-                                            // 如果插入失败，说明结果出现过，不用写入
-                                            Err(_) => ()
-                                        }
-                                    ).unwrap();  // 这里假定所有非终结符对应的 hashmap 已经被主线程创建
+                                    if valid_program {
+                                        prev_results_ref.peek_with(
+                                            &name_of_non_terminal, 
+                                            |_, v| match v.insert(values_on_each_test_and_each_call, ()) {
+                                                Ok(_) => {
+                                                    // 如果插入成功，说明结果没有出现过
+                                                    // 将 exp 写入可用表达式组之中
+                                                    available_exps_ref.peek_with(
+                                                        &name_of_non_terminal, 
+                                                        |_, v| {
+                                                            v.push(exp);
+                                                        }
+                                                    ).unwrap(); // 这里假定所有非终结符对应的 hashmap 已经被主线程创建
+                                                },
+                                                // 如果插入失败，说明结果出现过，不用写入
+                                                Err(_) => ()
+                                            }
+                                        ).unwrap();  // 这里假定所有非终结符对应的 hashmap 已经被主线程创建
+                                    }
                                     if processing_task_ref.clone().fetch_sub(1, std::sync::atomic::Ordering::Relaxed) == 1 {
                                         // 如果当前任务是最后一个任务，说明所有任务已经完成
                                         // let _ = all_tasks_done_flag_ref.set(());
@@ -404,9 +343,8 @@ pub mod search {
                         ))
                     }
 
-                    let mut get_a_solution = false;
                     // 主线程负责生成新的 exp，以及找到通过所有测试的程序时发给 smt solver
-                    while program_passes_tests.get().is_none() {
+                    'enum_size: while program_passes_tests.get().is_none() {
                         // 还没有找到解时
 
                         // 依次枚举程序大小
@@ -465,8 +403,7 @@ pub mod search {
                                     Ok(either_val) => match either_val {
                                         Left(v) => {
                                             counter_examples.push(v);
-                                            get_a_solution = true;
-                                            break;
+                                            break 'enum_size;   // 如果找到了反例，直接退出枚举 size 的循环
                                         }
                                         Right(e) => {
                                             println!("The exp satisifies all constraints: {:?}", e);
@@ -478,16 +415,10 @@ pub mod search {
                                     }
                                 }
                             }
-                            if get_a_solution {
-                                break;
-                            }
                             // 否则，将本层得到的表达式加入可用表达式，进入下一层
                             // 将本层得到的表达式加入可用表达式
                             candidate_exprs.insert(prog_size, available_exps.clone());  // 这里本来不应该需要复制，但是由于 borrow checker 问题，先暂且这样做
                             prog_size += 1;
-                        }
-                        if get_a_solution {
-                            break;
                         }
                     }
                     // 向所有线程发送停止消息
