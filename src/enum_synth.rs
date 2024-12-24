@@ -197,8 +197,7 @@ fn basic_search<
                   *ptr = Z3_mk_context(Z3_mk_config());
                };
 
-               let mut solver =
-                    z3_solver::Z3Solver::new(defines, declare_vars, synth_fun, constraints, z3_ctx);
+               let mut solver = z3_solver::Z3Solver::new(defines, declare_vars, synth_fun, constraints, z3_ctx);
                 
                 let res = solver.get_counterexample(&now_prog);
 
@@ -276,10 +275,11 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         &synth_fun,
         &constraints,
         arc_ctx,
-        | | {
+        |new_prog| {
             // let mut z3_ctx = z3::Context::new(&Config::new());
-            let z3_ctx = z3_ctx.clone();
-            z3_solver::Z3Solver::new(&defines, &declare_vars, &synth_fun, &constraints, z3_ctx)
+            // let z3_ctx = z3_ctx.clone();
+            let mut solver = z3_solver::Z3Solver::new(&defines, &declare_vars, &synth_fun, &constraints, &z3_ctx);
+            solver.get_counterexample(new_prog)
         }
     );
     

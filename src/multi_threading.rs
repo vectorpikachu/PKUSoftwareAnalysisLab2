@@ -14,7 +14,7 @@ pub mod search {
     use crate::z3_solver::GetZ3Type;
     use crate::{base, collect_callings, parser, z3_solver};
     use crate::base::function::{ExecError, GetValueError, NamedExecutable};
-    use crate::base::language::{ConstraintPassesValue, FromBasicFun, Type};
+    use crate::base::language::{BasicFun, ConstraintPassesValue, FromBasicFun, Type};
     use base::{
         language::{
             SynthFun,
@@ -191,7 +191,10 @@ pub mod search {
         synth_fun: &SynthFun<Identifier, Values, Types>,
         constraints: &Vec<Constraint<Identifier, Values>>,
         scope: Arc<Context>,
-        z3_solver_generator: impl Fn() -> z3_solver::Z3Solver<'a, Identifier, Values>,
+        z3_solver_call: 
+            impl Fn(
+                &BasicFun<Identifier, Values, Types, FunctionVar<'a, Identifier, Values>, Context>,
+            ) -> Result<Either<HashMap<Identifier, (Types, Values)>, String>, String>,
     ) -> Result<Exp<Identifier, Values>, String> 
     where 
     {
@@ -434,9 +437,9 @@ pub mod search {
                             info!("本轮所有任务完成，主线程被唤醒");
                             // 如果找到通过测试的解
                             if let Some(exp) = program_passes_tests_ref.get() {
-                                let mut solver = z3_solver_generator();
+                                // let mut solver = z3_solver_generator();
                                 let now_prog = synth_fun.exp_to_basic_fun(Some(scope_arc_ref.clone()), &exp);
-                                let res = solver.get_counterexample(&now_prog);
+                                let res = z3_solver_call(&now_prog);
                                 match res {
                                     Ok(either_val) => match either_val {
                                         Left(v) => {
