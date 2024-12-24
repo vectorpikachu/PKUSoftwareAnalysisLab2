@@ -276,9 +276,6 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
     let mut solver = z3_solver::Z3Solver::new(&defines, &declare_vars, &synth_fun, &constraints, &z3_ctx);
     let max_res = solver.get_counterexample(&synth_fun.exp_to_basic_fun(Some(arc_ctx.clone()), &max_exp));
 
-    println!("max_exp: {:?}", max_exp);
-    println!("max_res: {:?}", max_res);
-
     match max_res {
         Ok(v) => {
             match v {
