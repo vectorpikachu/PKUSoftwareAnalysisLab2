@@ -170,8 +170,8 @@ fn basic_search<
                                 Ok(v) => v.is_pass(),
                                 Err(ExecError::DivZero) => false,
                                 _ => {
-                                    println!("Counter example: {:?}", counter_example);
-                                    panic!("Error: {:?}", passed)
+                                    // TODO: 为什么会有 ite NotFound
+                                    false
                                 }
                             };
                             if !is_pass {
