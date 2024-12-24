@@ -40,6 +40,7 @@ use crate::bv_logic::bv;
 use crate::lia_builtin::lia_builtin;
 use crate::lia_logic::lia;
 
+use crate::lia_logic::lia::max;
 use crate::multi_threading::search::concurrent_search;
 use crate::parser::parser::parse_logic;
 use crate::parser::parser::MutContextSexpParser;
@@ -268,8 +269,29 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         Some(s) => s,
         None => panic!("No synth function defined"),
     };
+
     let z3_ctx = Arc::new(z3::Context::new(&Config::new()));
     let arc_ctx = Arc::new(ctx.clone());
+    let max_exp = max(synth_fun.get_args().iter().map(|(id, _)| id.to_string()).collect::<Vec<_>>());
+    let mut solver = z3_solver::Z3Solver::new(&defines, &declare_vars, &synth_fun, &constraints, &z3_ctx);
+    let max_res = solver.get_counterexample(&synth_fun.exp_to_basic_fun(Some(arc_ctx.clone()), &max_exp));
+
+    println!("max_exp: {:?}", max_exp);
+    println!("max_res: {:?}", max_res);
+
+    match max_res {
+        Ok(v) => {
+            match v {
+                Right(_s) => {
+                    return Left(max_exp.to_string());
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+
+    
     for define in defines.iter() {
         define.context.set(arc_ctx.clone());
     }
