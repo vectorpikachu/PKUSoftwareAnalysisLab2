@@ -1,6 +1,6 @@
 pub mod parser{
 
-    use std::{any::Any, cell::OnceCell, collections::{HashMap, HashSet}};
+    use std::{any::Any, cell::OnceCell, collections::{HashMap, HashSet}, sync::OnceLock};
 
     use sexp::Sexp;
 
@@ -228,7 +228,7 @@ pub mod parser{
                 DefineFun {
                     var_index: id,
                     args,
-                    context: OnceCell::new(),
+                    context: OnceLock::new(),
                     return_type,
                     body,
                     _phantom: std::marker::PhantomData
@@ -372,7 +372,7 @@ pub mod rc_function_var_context {
 
     #[derive(Clone)]
     pub struct RcFunctionVar<'a, Identifier, PrimValues> (
-        pub Arc<dyn PositionedExecutable<Identifier, PrimValues, PrimValues> + 'a>,
+        pub Arc<dyn PositionedExecutable<Identifier, PrimValues, PrimValues> + Send + Sync + 'a>,
     );
     
     impl <'a, Identifier: Clone, PrimValues: Copy> PositionedExecutable<Identifier, PrimValues, PrimValues> for RcFunctionVar<'a, Identifier, PrimValues> {
@@ -385,10 +385,10 @@ pub mod rc_function_var_context {
     }
 
     impl<'a,
-        Identifier: VarIndex + Clone + Eq + Hash + Debug + 'a,
-        PrimValues: Copy + Debug + Eq + 'a,
-        Types: 'a,
-        Context: Scope<Identifier, Types, PrimValues, RcFunctionVar<'a, Identifier, PrimValues>> + 'a,
+        Identifier: VarIndex + Clone + Eq + Hash + Debug + 'a + Send + Sync,
+        PrimValues: Copy + Debug + Eq + 'a + Send + Sync,
+        Types: 'a + Send + Sync,
+        Context: Scope<Identifier, Types, PrimValues, RcFunctionVar<'a, Identifier, PrimValues>> + 'a + Send + Sync,
     > FromBasicFun<Identifier, PrimValues, Types, Context> for RcFunctionVar<'a, Identifier, PrimValues>
 {
     fn from_basic_fun(
@@ -428,9 +428,9 @@ pub mod rc_function_var_context {
     >
     
     for Command<'a, Identifier, Values, Types>
-    where Identifier: AtomParser + VarIndex + Eq + Clone + Hash + Debug + 'static,  // 不想再和生命周期斗争了
-          Values: AtomParser + Copy + Debug + Eq + 'static,
-          Types: ContextFreeSexpParser + Copy + Type + Eq + 'static
+    where Identifier: AtomParser + VarIndex + Eq + Clone + Hash + Debug + 'static + Send + Sync,  // 不想再和生命周期斗争了
+          Values: AtomParser + Copy + Debug + Eq + 'static + Send + Sync,
+          Types: ContextFreeSexpParser + Copy + Type + Eq + 'static + Send + Sync
     {
         fn head() -> sexp::Atom {
             sexp::Atom::S(" ".to_string())

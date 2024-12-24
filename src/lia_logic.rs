@@ -1,5 +1,5 @@
 pub mod lia {
-    use std::{cell::{OnceCell, RefCell}, collections::HashMap, marker::PhantomData, rc::Rc, sync::Arc};
+    use std::{cell::{OnceCell, RefCell}, collections::HashMap, marker::PhantomData, rc::Rc, sync::{Arc, OnceLock}};
 
     use sexp::{Error, Sexp};
 
@@ -121,7 +121,7 @@ pub mod lia {
         let define_fun = DefineFun {
             var_index: "g".to_string(),
             args: vec![("x".to_string(), Types::Int)],
-            context: OnceCell::<Arc<Context<String, Values, Types>>>::new(),
+            context: OnceLock::<Arc<Context<String, Values, Types>>>::new(),
             return_type: Types::Int,
             body: Exp::Value(Terms::<String, Values>::Var("x".to_string())),
             _phantom: PhantomData::<RcFunctionVar<'_, String, Values>>,

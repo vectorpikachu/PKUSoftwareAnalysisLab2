@@ -1,5 +1,6 @@
 //! 实现最基础的枚举合成器
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -268,7 +269,7 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         Some(s) => s,
         None => panic!("No synth function defined"),
     };
-    let mut z3_ctx = z3::Context::new(&Config::new());
+    let z3_ctx = Arc::new(z3::Context::new(&Config::new()));
 
     let arc_ctx = Arc::new(ctx.clone());
     let res_exp = concurrent_search(
@@ -276,8 +277,9 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         &constraints,
         arc_ctx,
         | | {
-            let mut z3_ctx = z3::Context::new(&Config::new());
-            z3_solver::Z3Solver::new(&defines, &declare_vars, &synth_fun, &constraints, &z3_ctx)
+            // let mut z3_ctx = z3::Context::new(&Config::new());
+            let z3_ctx = z3_ctx.clone();
+            z3_solver::Z3Solver::new(&defines, &declare_vars, &synth_fun, &constraints, z3_ctx)
         }
     );
     

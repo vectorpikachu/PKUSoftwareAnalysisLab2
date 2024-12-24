@@ -271,7 +271,7 @@ pub mod scope {
 }
 
 pub mod language {
-    use std::{borrow::Borrow, cell::OnceCell, collections::{HashMap, HashSet}, fmt::{format, Debug}, hash::Hash, marker::PhantomData, rc::Rc, sync::Arc, task::Context};
+    use std::{borrow::Borrow, cell::OnceCell, collections::{HashMap, HashSet}, fmt::{format, Debug}, hash::Hash, marker::PhantomData, rc::Rc, sync::{Arc, OnceLock}, task::Context};
 
     use either::Either;
 
@@ -510,7 +510,7 @@ pub mod language {
     > {
         pub var_index: Identifier,
         pub args: Vec<(Identifier, Types)>,
-        pub context: OnceCell<Arc<Context>>,
+        pub context: OnceLock<Arc<Context>>,
         pub return_type: Types,
         pub body: Exp<Identifier, PrimValues>,
         pub _phantom: PhantomData<FunctionVar>
