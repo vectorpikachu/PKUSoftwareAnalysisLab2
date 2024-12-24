@@ -1,13 +1,14 @@
 pub mod search {
     use std::borrow::Borrow;
-    use std::cell::{Cell, RefCell};
+    use std::cell::{Cell, RefCell, UnsafeCell};
     use std::collections::HashSet;
+    use std::mem::swap;
     use std::rc::Rc;
     use std::sync::atomic::AtomicUsize;
     use std::task::Context;
-    use std::thread;
+    use std::thread::{self, sleep};
     use std::sync::{
-        Arc, OnceLock
+        Arc, Mutex, OnceLock, RwLock
     };
     use crate::collect_callings::collect_callings::collect_callings_of_fun;
     use crate::z3_solver::GetZ3Type;
@@ -206,7 +207,7 @@ pub mod search {
             // 对于不同的非终结符，存储出现过的可观测结果
             let prev_results: ConcurrentHashIndex<Identifier, ConcurrentHashSet<Vec<Vec<Values>>>> = ConcurrentHashIndex::new();
             // 对于当前层不同的非终结符，存储可用的表达式。每次切换到更高层时，主线程把它移动到 candidate_exprs 然后清空
-            let available_exps: ConcurrentHashIndex<Identifier, ExpQueue::<Identifier, Values>> = ConcurrentHashIndex::new();
+            let available_exps: Arc<RwLock<ConcurrentHashIndex<Identifier, ExpQueue::<Identifier, Values>>>> = Arc::new(RwLock::new(ConcurrentHashIndex::new()));
             let available_exps_ref = &available_exps;
             let prev_results_ref = &prev_results;
             let (tx, rx) = spmc::channel::<Message<Identifier, Values>>();
@@ -225,11 +226,12 @@ pub mod search {
                     let mut threads = Vec::new();
                     for _ in 1..MAX_THREADS {
                         let rx = rx.clone();
-
                         // 子线程负责验证所有的 counter examples
                         threads.push(s.spawn(
                             move || {
+                                let available_exps_ref = available_exps_ref.clone();
                                 '_enum_program: while let Ok(msg) = rx.recv() {
+                                    let available_exps_ref = available_exps_ref.read().unwrap();
                                     // 注意这里 rx.recv 是 block 的
                                     let (name_of_non_terminal, exp) = match msg {
                                         Message::Exp(name, exp) => (name, exp),
@@ -352,21 +354,28 @@ pub mod search {
                         // 这两个变量只由主线程使用
                         let mut candidate_exprs: AllCandidateExprs<Identifier, Values> = HashMap::new();
                         let mut prog_size = 1;
+                        let available_exps_ref = available_exps_ref.clone();
                         candidate_exprs.insert(prog_size, ConcurrentHashIndex::new());
                         let all_rules = synth_fun.get_all_rules_with_non_terminals();
                         let all_non_terminals = all_rules.keys().cloned().collect::<HashSet<_>>();
-                        for non_terminal in &all_non_terminals {
+                        {
+                            let mut available_exps_ref = available_exps_ref.write().unwrap();
+                            for non_terminal in &all_non_terminals {
                             // 初始化一些信息
-                            available_exps.insert((*non_terminal).clone(), ExpQueue::default());
-                            prev_results.insert((*non_terminal).clone(), ConcurrentHashSet::new());
+                                available_exps_ref.insert((*non_terminal).clone(), ExpQueue::default()).unwrap();
+                                prev_results.insert((*non_terminal).clone(), ConcurrentHashSet::new()).unwrap();
+                            }
                         }
                         loop {
                             // let _ = all_tasks_done_flag.take();
                             // 我们假设所有线程处理程序大小是同步的，主线程会等待当前大小程序全部处理完，再处理下一个大小的程序
-                            for non_terminal in &all_non_terminals {
+                            {
+                                let mut available_exps_ref = available_exps_ref.write().unwrap();
+                                for non_terminal in &all_non_terminals {
                                 // 初始化一些信息
-                                available_exps.get(non_terminal).unwrap().update(ExpQueue::default());
-                                prev_results.get(non_terminal).unwrap().update(ConcurrentHashSet::new());
+                                    available_exps_ref.get(non_terminal).unwrap().update(ExpQueue::default());
+                                    prev_results.get(non_terminal).unwrap().update(ConcurrentHashSet::new());
+                                }
                             }
                             // 枚举所有的规则
                             for (non_terminal, rules) in all_rules {
@@ -390,9 +399,11 @@ pub mod search {
                                     );
                                 }
                             }
-                            // 等待所有线程处理完毕。先使用 busy loop 有空再优化
+                            
+                            // 等待所有线程处理完毕。先使用 busy loop，等待优化
                             while processing_task.load(std::sync::atomic::Ordering::Relaxed) != 0 && program_passes_tests_ref.get().is_none() {
                                 // busy loop
+                                sleep(std::time::Duration::from_micros(1000));
                             }
                             // 如果找到通过测试的解
                             if let Some(exp) = program_passes_tests_ref.get() {
@@ -417,7 +428,12 @@ pub mod search {
                             }
                             // 否则，将本层得到的表达式加入可用表达式，进入下一层
                             // 将本层得到的表达式加入可用表达式
-                            candidate_exprs.insert(prog_size, available_exps.clone());  // 这里本来不应该需要复制，但是由于 borrow checker 问题，先暂且这样做
+                            {
+                                let mut available_exps_ref = available_exps_ref.write().unwrap();
+                                let mut temp_available_exps: ConcurrentHashIndex<Identifier, ExpQueue::<Identifier, Values>> = ConcurrentHashIndex::new();
+                                swap(&mut temp_available_exps, &mut available_exps_ref);
+                                candidate_exprs.insert(prog_size, temp_available_exps);
+                            }
                             prog_size += 1;
                         }
                     }

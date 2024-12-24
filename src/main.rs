@@ -10,7 +10,7 @@ pub mod multi_threading;
 pub mod z3_solver;
 pub mod collect_callings;
 pub mod lia_builtin;
-pub mod enum_synth;
+// pub mod enum_synth;
 
 /// 从命令行读取.sl文件
 pub fn read_file() -> String {
@@ -35,19 +35,19 @@ pub fn read_file() -> String {
 
 fn main() {
     let file = read_file();
-    let res = enum_synth::enum_synth_fun(&file);
+    // let res = enum_synth::enum_synth_fun(&file);
     
-    // 写进 result.txt
-    use std::fs::File;
-    use std::io::Write;
-    let mut file = File::create("result.txt").unwrap();
-    match res {
-        Left(s) => {
-            file.write_all(s.as_bytes()).unwrap();
-            println!("{}", s);
-        },
-        _ => {
-            panic!("Error");
-        }
-    }
+    // // 写进 result.txt
+    // use std::fs::File;
+    // use std::io::Write;
+    // let mut file = File::create("result.txt").unwrap();
+    // match res {
+    //     Left(s) => {
+    //         file.write_all(s.as_bytes()).unwrap();
+    //         println!("{}", s);
+    //     },
+    //     _ => {
+    //         panic!("Error");
+    //     }
+    // }
 }
