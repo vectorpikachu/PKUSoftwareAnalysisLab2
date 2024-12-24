@@ -123,6 +123,14 @@ pub fn check_z3_builtin<'ctx>(
             }
             Ok(Bool::ite(&args[0].as_bool().unwrap(), &args[1], &args[2]).into())
         }
+        "=>" => {
+            arg_num_check(args, 2, "=>");
+            let kind = args[0].get_sort().kind();
+            if kind != SortKind::Bool {
+                return Err(format!("Expected Bool in =>, got {:?}", kind));
+            }
+            Ok(args[0].as_bool().unwrap().implies(&args[1].as_bool().unwrap()).into())
+        }
         "bvnot" => {
             // bitwise negation
             arg_num_check(args, 1, "bvnot");
