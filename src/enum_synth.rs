@@ -386,7 +386,7 @@ fn enum_synth_for_bv(sexps: &[Sexp]) -> Either<String, String> {
     match res_exp {
         Ok(e) => {
             println!("Found a solution: {}", e.to_string());
-            return Left(e.to_string());
+            return Left(format!("{}{})", synth_fun.to_string(), e.to_string()));
         }
         Err(e) => {
             println!("Error: {:?}", e);
@@ -647,7 +647,7 @@ impl ToString for lia::Values {
 impl ToString for bv::Types {
     fn to_string(&self) -> String {
         match self {
-            bv::Types::BV => "BitVec".to_string(),
+            bv::Types::BV => "(_ BitVec 64)".to_string(),
             bv::Types::Bool => "Bool".to_string(),
             bv::Types::Function => "Function".to_string(),
         }
