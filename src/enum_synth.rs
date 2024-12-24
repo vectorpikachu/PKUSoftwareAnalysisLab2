@@ -285,6 +285,63 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
     }
 }
 
+fn enum_synth_for_bv(sexps: &[Sexp]) -> Either<String, String> {
+
+    let mut ctx = lia_builtin::lia_builtin::get_empty_context_with_builtin();
+    let mut defines = Vec::new();
+    let mut declare_vars = Vec::new();
+    let mut synth_func = None;
+    let mut constraints: Vec<Constraint<String, lia::Values>> = Vec::new();
+    for exp in sexps {
+        let parse_exp = Command::<String, lia::Values, lia::Types>::parse(&exp, &mut ctx);
+        match parse_exp {
+            Ok(c) => match c {
+                Command::DefineFun(d) => {
+                    defines.push(d);
+                }
+                Command::DeclareVar(v) => {
+                    declare_vars.push(v);
+                }
+                Command::SynthFun(s) => {
+                    synth_func = Some(s);
+                }
+                Command::Constraint(c) => {
+                    constraints.push(c);
+                }
+                _ => {}
+            },
+            Err(e) => {
+                panic!("Error: {:?}", e);
+            }
+        }
+    }
+    let synth_fun = match synth_func {
+        Some(s) => s,
+        None => panic!("No synth function defined"),
+    };
+
+    let mut z3_ctx = z3::Context::new(&Config::new());
+    let res_exp = basic_search(
+        &synth_fun,
+        &constraints,
+        &defines,
+        &declare_vars,
+        &ctx,
+        &mut z3_ctx,
+    );
+
+    match res_exp {
+        Ok(e) => {
+            println!("Found a solution: {}", e.to_string());
+            return Left(e.to_string());
+        }
+        Err(e) => {
+            println!("Error: {:?}", e);
+            return Right(format!("Error: {:?}", e));
+        }
+    }
+}
+
 fn check_terminal<
     Identifier: Eq + Hash + Clone + VarIndex + Debug,
     Values: Eq + Copy + Debug + Hash + ConstraintPassesValue,
@@ -564,13 +621,17 @@ impl<Identifier: Clone + Eq + ToString, PrimValues: Copy + Eq + ToString> ToStri
     }
 }
 
-impl ToString for SynthFun<String, lia::Values, lia::Types> {
+impl<
+        Identifier: Clone + Eq + VarIndex + Debug + Hash,
+        Values: Eq + Copy + ToString + Debug,
+        Types: Eq + Copy + ToString,
+> ToString for SynthFun<Identifier, Values, Types> {
     fn to_string(&self) -> String {
-        let name = self.get_name();
+        let name = self.get_name().to_name();
         let args = self
             .get_args()
             .iter()
-            .map(|(arg_name, arg_type)| format!("({} {})", arg_name, arg_type.to_string()))
+            .map(|(arg_name, arg_type)| format!("({} {})", arg_name.to_name(), arg_type.to_string()))
             .collect::<Vec<String>>()
             .join(" ");
 

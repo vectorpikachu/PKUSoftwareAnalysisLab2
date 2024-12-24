@@ -194,6 +194,9 @@ pub fn check_z3_builtin<'ctx>(
             if kind != SortKind::BV {
                 return Err(format!("Expected BV in bvudiv, got {:?}", kind));
             }
+            if args[1].as_bv().unwrap().as_i64().unwrap() == 0 {
+                return Err("Division by zero".to_string());
+            }
             Ok(args[0].as_bv().unwrap().bvudiv(&args[1].as_bv().unwrap()).into())
         }
         "bvsdiv" => {
@@ -201,6 +204,9 @@ pub fn check_z3_builtin<'ctx>(
             let kind = args[0].get_sort().kind();
             if kind != SortKind::BV {
                 return Err(format!("Expected BV in bvsdiv, got {:?}", kind));
+            }
+            if args[1].as_bv().unwrap().as_i64().unwrap() == 0 {
+                return Err("Division by zero".to_string());
             }
             Ok(args[0].as_bv().unwrap().bvsdiv(&args[1].as_bv().unwrap()).into())
         }
@@ -236,6 +242,70 @@ pub fn check_z3_builtin<'ctx>(
             }
             Ok(args[0].as_bv().unwrap().bvsmod(&args[1].as_bv().unwrap()).into())
         }
+        "bvult" => {
+            arg_num_check(args, 2, "bvult");
+            let kind = args[0].get_sort().kind();
+            if kind != SortKind::BV {
+                return Err(format!("Expected BV in bvult, got {:?}", kind));
+            }
+            Ok(args[0].as_bv().unwrap().bvult(&args[1].as_bv().unwrap()).into())
+        }
+        "bvslt" => {
+            arg_num_check(args, 2, "bvslt");
+            let kind = args[0].get_sort().kind();
+            if kind != SortKind::BV {
+                return Err(format!("Expected BV in bvslt, got {:?}", kind));
+            }
+            Ok(args[0].as_bv().unwrap().bvslt(&args[1].as_bv().unwrap()).into())
+        }
+        "bvule" => {
+            arg_num_check(args, 2, "bvule");
+            let kind = args[0].get_sort().kind();
+            if kind != SortKind::BV {
+                return Err(format!("Expected BV in bvule, got {:?}", kind));
+            }
+            Ok(args[0].as_bv().unwrap().bvule(&args[1].as_bv().unwrap()).into())
+        }
+        "bvsle" => {
+            arg_num_check(args, 2, "bvsle");
+            let kind = args[0].get_sort().kind();
+            if kind != SortKind::BV {
+                return Err(format!("Expected BV in bvsle, got {:?}", kind));
+            }
+            Ok(args[0].as_bv().unwrap().bvsle(&args[1].as_bv().unwrap()).into())
+        }
+        "bvuge" => {
+            arg_num_check(args, 2, "bvuge");
+            let kind = args[0].get_sort().kind();
+            if kind != SortKind::BV {
+                return Err(format!("Expected BV in bvuge, got {:?}", kind));
+            }
+            Ok(args[0].as_bv().unwrap().bvuge(&args[1].as_bv().unwrap()).into())
+        }
+        "bvsge" => {
+            arg_num_check(args, 2, "bvsge");
+            let kind = args[0].get_sort().kind();
+            if kind != SortKind::BV {
+                return Err(format!("Expected BV in bvsge, got {:?}", kind));
+            }
+            Ok(args[0].as_bv().unwrap().bvsge(&args[1].as_bv().unwrap()).into())
+        }
+        "bvugt" => {
+            arg_num_check(args, 2, "bvugt");
+            let kind = args[0].get_sort().kind();
+            if kind != SortKind::BV {
+                return Err(format!("Expected BV in bvugt, got {:?}", kind));
+            }
+            Ok(args[0].as_bv().unwrap().bvugt(&args[1].as_bv().unwrap()).into())
+        }
+        "bvsgt" => {
+            arg_num_check(args, 2, "bvsgt");
+            let kind = args[0].get_sort().kind();
+            if kind != SortKind::BV {
+                return Err(format!("Expected BV in bvsgt, got {:?}", kind));
+            }
+            Ok(args[0].as_bv().unwrap().bvsgt(&args[1].as_bv().unwrap()).into())
+        }
         "bvlshr" => {
             arg_num_check(args, 2, "bvlshr");
             let kind = args[0].get_sort().kind();
@@ -252,7 +322,14 @@ pub fn check_z3_builtin<'ctx>(
             }
             Ok(args[0].as_bv().unwrap().bvashr(&args[1].as_bv().unwrap()).into())
         }
-
+        "concat" => {
+            arg_num_check(args, 2, "concat");
+            let kind = args[0].get_sort().kind();
+            if kind != SortKind::BV {
+                return Err(format!("Expected BV in concat, got {:?}", kind));
+            }
+            Ok(args[0].as_bv().unwrap().concat(&args[1].as_bv().unwrap()).into())
+        }
         _ => Err(format!("Unsupported function: {}", f)),
     }
 }
@@ -320,6 +397,14 @@ fn arg_num_check<'ctx>(args: &Vec<Dynamic<'ctx>>, num: usize, func_name: &str) {
             let arg_kind = args[0].get_sort().kind();
             if arg_kind != SortKind::BV {
                 panic!("Expected BV in {}, got {:?}", func_name, arg_kind);
+            }
+        }
+        "bvand" | "bvor" | "bvadd" | "bvmul" | "bvudiv" | "bvsdiv" | "bvurem" | "bvsrem" | "bvshl" | "bvlshr" | "bvashr" | "concat" 
+            | "bvult" | "bvslt" | "bvule" | "bvsle" | "bvuge" | "bvsge" | "bvugt" | "bvsgt" => {
+            let arg1_kind = args[0].get_sort().kind();
+            let arg2_kind = args[1].get_sort().kind();
+            if arg1_kind != arg2_kind {
+                panic!("Expected same type in {}, got {:?} and {:?}", func_name, arg1_kind, arg2_kind);
             }
         }
         _ => {}
