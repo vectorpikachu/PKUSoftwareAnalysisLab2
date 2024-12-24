@@ -38,19 +38,19 @@ pub fn read_file() -> String {
 
 fn main() {
     let file = read_file();
-    // let res = enum_synth::enum_synth_fun(&file);
+    let res = enum_synth::enum_synth_fun(&file);
     
     // // 写进 result.txt
-    // use std::fs::File;
-    // use std::io::Write;
-    // let mut file = File::create("result.txt").unwrap();
-    // match res {
-    //     Left(s) => {
-    //         file.write_all(s.as_bytes()).unwrap();
-    //         println!("{}", s);
-    //     },
-    //     _ => {
-    //         panic!("Error");
-    //     }
-    // }
+    use std::fs::File;
+    use std::io::Write;
+    let mut file = File::create("result.txt").unwrap();
+    match res {
+         Left(s) => {
+             file.write_all(s.as_bytes()).unwrap();
+             println!("{}", s);
+         },
+         _ => {
+             panic!("Error");
+         }
+    }
 }
