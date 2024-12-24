@@ -135,6 +135,7 @@ pub mod search {
                 cur_candidates.peek_with(&cur_non_terminals, 
                     |_, cur_candidates| {
                         for candidate in cur_candidates.iter(&guard) {
+                            // println!("sz: {}, cur_non_terminals: {:?}, candidate: {:?}", sz, cur_non_terminals, candidate);
                             // 替换当前的引用
                             unsafe {
                                 **cur_enum_loc = candidate.clone();
@@ -152,7 +153,10 @@ pub mod search {
                                 // visited_exprs,
                                 guard
                             );
-                            return res;
+                            if res == false {
+                                // 如果返回 false，说明应当立刻终止枚举
+                                return false;
+                            }
                         }
                         return true;
                     }
@@ -398,7 +402,9 @@ pub mod search {
                                                     ).unwrap(); // 这里假定所有非终结符对应的 hashmap 已经被主线程创建
                                                 },
                                                 // 如果插入失败，说明结果出现过，不用写入
-                                                Err(_) => ()
+                                                Err(_) => {
+                                                    debug!("表达式：{:?} 已经出现过", exp);
+                                                }
                                             }
                                         ).unwrap();  // 这里假定所有非终结符对应的 hashmap 已经被主线程创建
                                     }
@@ -433,6 +439,8 @@ pub mod search {
                         }
                         loop {
                             info!("枚举程序大小：{}", prog_size);
+                            // 重置状态
+                            turn_is_finish_ref.store(0, std::sync::atomic::Ordering::Relaxed);
                             // let _ = all_tasks_done_flag.take();
                             // 我们假设所有线程处理程序大小是同步的，主线程会等待当前大小程序全部处理完，再处理下一个大小的程序
                             {
@@ -443,6 +451,30 @@ pub mod search {
                                     prev_results.get(non_terminal).unwrap().update(ConcurrentHashSet::new());
                                 }
                             }
+
+                            let tx = tx_rc_ref_cell.clone();
+                            // tx.borrow_mut().send(Message::Exp(synth_fun.get_name().clone(), 
+                            //     Exp::Apply(
+                            //         Identifier::from_name("*".to_string()), 
+                            //         vec![
+                            //             Exp::Apply(
+                            //                 Identifier::from_name("+".to_string()),
+                            //                 vec![
+                            //                     Exp::Value(base::language::Terms::Var(Identifier::from_name("x".to_string()))),
+                            //                     Exp::Value(base::language::Terms::Var(Identifier::from_name("x".to_string()))),
+                            //                 ]
+                            //             ),
+                            //             Exp::Apply(
+                            //                 Identifier::from_name("-".to_string()),
+                            //                 vec![
+                            //                     Exp::Value(base::language::Terms::Var(Identifier::from_name("y".to_string()))),
+                            //                     Exp::Value(base::language::Terms::Var(Identifier::from_name("z".to_string()))),
+                            //                 ]
+                            //             ),
+                            //         ]
+                            //     )
+                            // )).unwrap();
+                            // println!("candidate_exprs: {:?}", candidate_exprs);
                             // 枚举所有的规则
                             for (non_terminal, rules) in all_rules {
                                 for rule in rules {
@@ -476,6 +508,10 @@ pub mod search {
                             // 如果找到通过测试的解
                             if let Some(exp) = program_passes_tests_ref.get() {
                                 // let mut solver = z3_solver_generator();
+                                // 向所有线程发送停止消息
+                                for _ in 0..MAX_THREADS {
+                                    let _ = tx_rc_ref_cell.borrow_mut().send(Message::Halt);
+                                }
                                 let now_prog = synth_fun.exp_to_basic_fun(Some(scope_arc_ref.clone()), &exp);
                                 let res = z3_solver_call(&now_prog);
                                 match res {
@@ -511,10 +547,7 @@ pub mod search {
                             }
                         }
                     }
-                    // 向所有线程发送停止消息
-                    for _ in 0..MAX_THREADS {
-                        let _ = tx_rc_ref_cell.borrow_mut().send(Message::Halt);
-                    }
+
                     Err("Doesn't find a solution".to_string())
                     // 此处，所有的线程应当都 join 了
                 }
