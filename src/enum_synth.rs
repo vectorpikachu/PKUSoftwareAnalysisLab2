@@ -681,3 +681,10 @@ impl<
         )
     }
 }
+
+fn is_max<Identifier: Eq + Hash + Clone + VarIndex + Debug, Values: Eq + Copy + Debug + Hash, Types>(
+    synth_fun: &SynthFun<Identifier, Values, Types>,
+) -> bool {
+    // 判断一个函数是否是 max 函数
+    return false;
+}
