@@ -1,0 +1,1 @@
+(define-fun comm ((x Int) (y Int)) Int (ite (>= y x) y x))

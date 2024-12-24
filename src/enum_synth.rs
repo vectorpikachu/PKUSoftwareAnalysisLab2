@@ -3,6 +3,7 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt::format;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::Peekable;
@@ -54,7 +55,7 @@ use crate::z3_solver::NewPrimValues;
 /// 设计一个枚举合成器
 pub fn enum_synth_fun(read_file: &str) -> Either<String, String> {
     let cmds = "(\n".to_string() + read_file + "\n)";
-    println!("{}", cmds);
+    // println!("{}", cmds);
     let sexps = sexp::parse(&cmds);
     let sexps = match sexps {
         Ok(v) => v,
@@ -64,7 +65,7 @@ pub fn enum_synth_fun(read_file: &str) -> Either<String, String> {
         sexp::Sexp::List(v) => v,
         _ => panic!("Expected a list"),
     };
-    println!("{:#?}", sexps);
+    // println!("{:#?}", sexps);
 
     let logic_result = parse_logic(&sexps[0]);
 
@@ -203,7 +204,7 @@ fn basic_search<
                 
                 let res = solver.get_counterexample(&now_prog);
 
-                println!("res: {:?}", res);
+                // println!("res: {:?}", res);
 
                 match res {
                     Ok(either_val) => match either_val {
@@ -211,7 +212,7 @@ fn basic_search<
                             counter_examples.push(v);
                         }
                         Right(e) => {
-                            println!("The exp satisifies all constraints: {:?}", e);
+                            // println!("The exp satisifies all constraints: {:?}", e);
                             return Ok(expr);
                         }
                     },
@@ -281,7 +282,7 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         Ok(v) => {
             match v {
                 Right(_s) => {
-                    return Left(max_exp.to_string());
+                    return Left(format!("{}{})", synth_fun.to_string(), max_exp.to_string()));
                 }
                 _ => {}
             }
@@ -297,7 +298,7 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         Ok(v) => {
             match v {
                 Right(_s) => {
-                    return Left(findIdx_exp.to_string());
+                    return Left(format!("{}{})", synth_fun.to_string(), findIdx_exp.to_string()));
                 }
                 _ => {}
             }
@@ -322,8 +323,8 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
     
     match res_exp {
         Ok(e) => {
-            println!("Found a solution: {}", e.to_string());
-            return Left(e.to_string());
+            // println!("Found a solution: {}", e.to_string());
+            return Left(format!("{}{})", synth_fun.to_string(), e.to_string()));
         }
         Err(e) => {
             println!("Error: {:?}", e);
@@ -384,8 +385,8 @@ fn enum_synth_for_bv(sexps: &[Sexp]) -> Either<String, String> {
 
     match res_exp {
         Ok(e) => {
-            println!("Found a solution: {}", e.to_string());
-            return Left(e.to_string());
+            // println!("Found a solution: {}", e.to_string());
+            return Left(format!("{}{})", synth_fun.to_string(), e.to_string()));
         }
         Err(e) => {
             println!("Error: {:?}", e);
@@ -646,7 +647,7 @@ impl ToString for lia::Values {
 impl ToString for bv::Types {
     fn to_string(&self) -> String {
         match self {
-            bv::Types::BV => "BitVec".to_string(),
+            bv::Types::BV => "(_ BitVec 64)".to_string(),
             bv::Types::Bool => "Bool".to_string(),
             bv::Types::Function => "Function".to_string(),
         }

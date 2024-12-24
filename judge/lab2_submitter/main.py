@@ -9,8 +9,8 @@ import psutil
 import traceback
 from pathlib import Path
 
-TIMEOUT_STUDENT = 180
-TIMEOUT_JUDGE = 60
+TIMEOUT_STUDENT = 5
+TIMEOUT_JUDGE = 5
 RANDOM_SEED = '1337'
 
 uid, serial = os.environ['TOKEN'].split(':')

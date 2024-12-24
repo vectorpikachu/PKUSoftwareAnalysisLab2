@@ -1,0 +1,1 @@
+(define-fun max5 ((x Int) (y Int) (z Int) (w Int) (u Int)) Int (ite (>= u (ite (>= w (ite (>= z (ite (>= y x) y x)) z (ite (>= y x) y x))) w (ite (>= z (ite (>= y x) y x)) z (ite (>= y x) y x)))) u (ite (>= w (ite (>= z (ite (>= y x) y x)) z (ite (>= y x) y x))) w (ite (>= z (ite (>= y x) y x)) z (ite (>= y x) y x)))))

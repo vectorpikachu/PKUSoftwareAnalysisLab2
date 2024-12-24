@@ -1,0 +1,1 @@
+(define-fun findIdx ((y1 Int) (y2 Int) (k1 Int)) Int (ite (< k1 y1) 0 (ite (< k1 y2) 1 2)))

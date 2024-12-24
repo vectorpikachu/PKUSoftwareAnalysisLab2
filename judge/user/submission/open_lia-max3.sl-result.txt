@@ -1,0 +1,1 @@
+(define-fun max3 ((x Int) (y Int) (z Int)) Int (ite (>= z (ite (>= y x) y x)) z (ite (>= y x) y x)))

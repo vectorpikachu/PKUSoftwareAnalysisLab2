@@ -1,0 +1,1 @@
+(define-fun findIdx ((y1 Int) (y2 Int) (y3 Int) (y4 Int) (y5 Int) (y6 Int) (y7 Int) (y8 Int) (y9 Int) (y10 Int) (y11 Int) (y12 Int) (k1 Int)) Int (ite (< k1 y1) 0 (ite (< k1 y2) 1 (ite (< k1 y3) 2 (ite (< k1 y4) 3 (ite (< k1 y5) 4 (ite (< k1 y6) 5 (ite (< k1 y7) 6 (ite (< k1 y8) 7 (ite (< k1 y9) 8 (ite (< k1 y10) 9 (ite (< k1 y11) 10 (ite (< k1 y12) 11 12)))))))))))))

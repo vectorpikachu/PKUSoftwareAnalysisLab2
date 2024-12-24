@@ -1,0 +1,18 @@
+(set-logic LIA)
+(define-fun max5 ((x Int)(y Int)(z Int)(w Int)(u Int)) Int
+    (ite (>= u (ite (>= w (ite (>= z (ite (>= y x) y x)) z (ite (>= y x) y x))) w (ite (>= z (ite (>= y x) y x)) z (ite (>= y x) y x)))) u (ite (>= w (ite (>= z (ite (>= y x) y x)) z (ite (>= y x) y x))) w (ite (>= z (ite (>= y x) y x)) z (ite (>= y x) y x))))
+)
+
+(assert (forall ((u Int)(w Int)(x Int)(y Int)(z Int))
+           (>= (max5 x y z w u) x)))
+(assert (forall ((u Int)(w Int)(x Int)(y Int)(z Int))
+           (>= (max5 x y z w u) y)))
+(assert (forall ((u Int)(w Int)(x Int)(y Int)(z Int))
+           (>= (max5 x y z w u) z)))
+(assert (forall ((u Int)(w Int)(x Int)(y Int)(z Int))
+           (>= (max5 x y z w u) w)))
+(assert (forall ((u Int)(w Int)(x Int)(y Int)(z Int))
+           (>= (max5 x y z w u) u)))
+(assert (forall ((u Int)(w Int)(x Int)(y Int)(z Int))
+           (or (= x (max5 x y z w u)) (or (= y (max5 x y z w u)) (or (= z (max5 x y z w u)) (or (= w (max5 x y z w u)) (= u (max5 x y z w u))))))))
+(check-sat)

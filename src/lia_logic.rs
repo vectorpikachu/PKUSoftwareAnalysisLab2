@@ -141,7 +141,7 @@ pub mod lia {
             let rest = args.into_iter().take(args_len - 1).collect::<Vec<_>>();
             let max_of_rest = max(rest);
             Exp::Apply("ite".to_string(), vec![
-                Exp::Apply(">".to_string(), vec![
+                Exp::Apply(">=".to_string(), vec![
                     Exp::Value(Terms::Var(last.clone())),
                     max_of_rest.clone()
                 ]),

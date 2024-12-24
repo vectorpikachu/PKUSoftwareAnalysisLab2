@@ -1,0 +1,5 @@
+The exp satisifies all constraints: "Synth Function Passed All Constraints"
+(define-fun f ((x (_ BitVec 64))) (_ BitVec 64) (bvor x #x0000000000000001))
+thread 'main' panicked at src/main.rs:54:14:
+explicit panic
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

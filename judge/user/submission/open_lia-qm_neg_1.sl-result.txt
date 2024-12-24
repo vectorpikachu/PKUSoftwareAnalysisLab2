@@ -1,0 +1,1 @@
+(define-fun qm-foo ((x Int)) Int (- x (qm x (- x 1))))

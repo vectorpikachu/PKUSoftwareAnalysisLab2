@@ -1,0 +1,18 @@
+(set-logic LIA)
+(define-fun f ((x Int)) Int
+    (mod (* x 3) 10)
+)
+
+(assert (forall ((x Int))
+           (= (f x) (f (+ x 10)))))
+(assert (= (f 1) 3))
+(assert (= (f 2) 6))
+(assert (= (f 3) 9))
+(assert (= (f 4) 2))
+(assert (= (f 5) 5))
+(assert (= (f 6) 8))
+(assert (= (f 7) 1))
+(assert (= (f 8) 4))
+(assert (= (f 9) 7))
+(assert (= (f 0) 0))
+(check-sat)

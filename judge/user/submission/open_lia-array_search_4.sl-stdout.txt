@@ -1,0 +1,4 @@
+(define-fun findIdx ((y1 Int) (y2 Int) (y3 Int) (y4 Int) (k1 Int)) Int (ite (< k1 y1) 0 (ite (< k1 y2) 1 (ite (< k1 y3) 2 (ite (< k1 y4) 3 4)))))
+thread 'main' panicked at src/main.rs:54:14:
+explicit panic
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
