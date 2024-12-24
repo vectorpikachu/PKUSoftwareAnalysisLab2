@@ -132,6 +132,22 @@ pub mod lia {
     pub fn max(
         args: Vec<String>
     ) -> Exp<String, Values> {
-        Exp::Apply("max".to_string(), args.into_iter().map(|x| Exp::Value(Terms::Var(x))).collect())
+        let last = args.last().unwrap().clone();
+        let args_len = args.len();
+        if args_len == 1{
+            return Exp::Value(Terms::Var(last.clone()));
+        }
+        else {
+            let rest = args.into_iter().take(args_len - 1).collect::<Vec<_>>();
+            let max_of_rest = max(rest);
+            Exp::Apply("ite".to_string(), vec![
+                Exp::Apply(">".to_string(), vec![
+                    Exp::Value(Terms::Var(last.clone())),
+                    max_of_rest.clone()
+                ]),
+                Exp::Value(Terms::Var(last.clone())),
+                max_of_rest
+            ])
+        }
     }
 }
