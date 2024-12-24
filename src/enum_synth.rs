@@ -3,6 +3,7 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt::format;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::Peekable;
@@ -281,7 +282,7 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         Ok(v) => {
             match v {
                 Right(_s) => {
-                    return Left(max_exp.to_string());
+                    return Left(format!("{}{})", synth_fun.to_string(), max_exp.to_string()));
                 }
                 _ => {}
             }
@@ -297,7 +298,7 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         Ok(v) => {
             match v {
                 Right(_s) => {
-                    return Left(findIdx_exp.to_string());
+                    return Left(format!("{}{})", synth_fun.to_string(), findIdx_exp.to_string()));
                 }
                 _ => {}
             }
@@ -323,7 +324,7 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
     match res_exp {
         Ok(e) => {
             println!("Found a solution: {}", e.to_string());
-            return Left(e.to_string());
+            return Left(format!("{}{})", synth_fun.to_string(), e.to_string()));
         }
         Err(e) => {
             println!("Error: {:?}", e);
