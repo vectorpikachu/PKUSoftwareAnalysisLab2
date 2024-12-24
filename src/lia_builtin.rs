@@ -173,4 +173,9 @@ pub mod lia_builtin{
         context.add_and_set_function_var("=>".to_string(), Types::Function, RcFunctionVar(Arc::new(BuiltIn::Impl)));
         context
     }
+    pub fn is_max(
+        synth_fun: &SynthFun<String, Values, Types>,
+    ) -> bool {
+        return false;
+    }
 }
