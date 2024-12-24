@@ -326,6 +326,7 @@ pub mod language {
                     }
                 },
                 Exp::Apply(f, args) => {
+                    println!("Apply: {:?}, {:?}", f, args);
                     let f = match args_map(f) {
                         Ok(Either::Left(x)) => return Err(ExecError::TypeMismatch(format!("{:?}", x))),
                         Ok(Either::Right(f)) => f,

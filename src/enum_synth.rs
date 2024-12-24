@@ -33,7 +33,9 @@ use crate::base::language::Terms;
 use crate::base::language::Type;
 use crate::base::logic::LogicTag;
 use crate::base::scope::Scope;
-use crate::lia_builtin;
+use crate::bv_builtin::bv_builtin;
+use crate::bv_logic::bv;
+use crate::lia_builtin::lia_builtin;
 use crate::lia_logic::lia;
 
 use crate::parser::parser::parse_logic;
@@ -70,15 +72,14 @@ pub fn enum_synth_fun(read_file: &str) -> Either<String, String> {
                 }
                 LogicTag::BV => {
                     // 调用 BV 的 enum_synth_for_bv
+                    return enum_synth_for_bv(&sexps[1..]);
                 }
             }
         }
         Err(e) => {
-            panic!("Error: {:?}", e);
+            return Right(format!("Error: {:?}", e));
         }
     }
-
-    return Right("No solution found".to_string());
 }
 
 
@@ -168,7 +169,10 @@ fn basic_search<
                             let is_pass = match passed {
                                 Ok(v) => v.is_pass(),
                                 Err(ExecError::DivZero) => false,
-                                _ => panic!("Error: {:?}", passed),
+                                _ => {
+                                    println!("Counter example: {:?}", counter_example);
+                                    panic!("Error: {:?}", passed)
+                                }
                             };
                             if !is_pass {
                                 pass_test = false;
@@ -230,7 +234,7 @@ fn basic_search<
 
 /// 对于 LIA 的枚举合成器
 fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
-    let mut ctx = lia_builtin::lia_builtin::get_empty_context_with_builtin();
+    let mut ctx = lia_builtin::get_empty_context_with_builtin();
     let mut defines = Vec::new();
     let mut declare_vars = Vec::new();
     let mut synth_func = None;
@@ -287,13 +291,13 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
 
 fn enum_synth_for_bv(sexps: &[Sexp]) -> Either<String, String> {
 
-    let mut ctx = lia_builtin::lia_builtin::get_empty_context_with_builtin();
+    let mut ctx = bv_builtin::get_empty_context_with_builtin();
     let mut defines = Vec::new();
     let mut declare_vars = Vec::new();
     let mut synth_func = None;
-    let mut constraints: Vec<Constraint<String, lia::Values>> = Vec::new();
+    let mut constraints: Vec<Constraint<String, bv::Values>> = Vec::new();
     for exp in sexps {
-        let parse_exp = Command::<String, lia::Values, lia::Types>::parse(&exp, &mut ctx);
+        let parse_exp = Command::<String, bv::Values, bv::Types>::parse(&exp, &mut ctx);
         match parse_exp {
             Ok(c) => match c {
                 Command::DefineFun(d) => {
@@ -587,6 +591,28 @@ impl ToString for lia::Values {
         match self {
             lia::Values::Int(v) => v.to_string(),
             lia::Values::Bool(v) => v.to_string(),
+        }
+    }
+}
+
+impl ToString for bv::Types {
+    fn to_string(&self) -> String {
+        match self {
+            bv::Types::BV => "BitVec".to_string(),
+            bv::Types::Bool => "Bool".to_string(),
+            bv::Types::Function => "Function".to_string(),
+        }
+    }
+}
+
+impl ToString for bv::Values {
+    fn to_string(&self) -> String {
+        match self {
+            bv::Values::BV(v) => {
+                // 要转成#x0000000000000001的样子
+                format!("#x{:016x}", v)
+            }
+            bv::Values::Bool(v) => v.to_string(),
         }
     }
 }

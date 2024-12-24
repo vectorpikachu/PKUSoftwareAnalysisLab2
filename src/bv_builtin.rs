@@ -74,7 +74,7 @@ pub mod bv_builtin{
                 BuiltIn::BVADD => {
                     arg_num_check(&args, 2, "BVADD")?;
                     match (args[0], args[1]) {
-                        (Values::BV(a), Values::BV(b)) => Ok(Values::BV(a + b)),
+                        (Values::BV(a), Values::BV(b)) => Ok(Values::BV(a.wrapping_add(b))),
                         _ => Err(ExecError::TypeMismatch(format!("Expected BV, BV in BVADD, got {:?}, {:?}", args[0], args[1])))
                     }   
                 }

@@ -264,6 +264,7 @@ pub fn get_z3_decl_with_type<
     let z3_decl: Dynamic<'ctx> = match z3_ty.kind() {
         SortKind::Int => z3::ast::Int::new_const(ctx, id.to_name()).into(),
         SortKind::Bool => z3::ast::Bool::new_const(ctx, id.to_name()).into(),
+        SortKind::BV => z3::ast::BV::new_const(ctx, id.to_name(), 64).into(),
         _ => panic!("Unsupported Type"),
     };
     z3_decl
