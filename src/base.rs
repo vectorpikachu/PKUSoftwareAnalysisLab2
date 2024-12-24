@@ -1,5 +1,5 @@
 pub mod function {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Arc};
 
     use either::Either;
     

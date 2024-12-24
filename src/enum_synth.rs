@@ -7,6 +7,7 @@ use std::hash::Hash;
 use std::iter::Peekable;
 use std::mem;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use either::Either;
 use either::Either::Left;
@@ -38,6 +39,7 @@ use crate::bv_logic::bv;
 use crate::lia_builtin::lia_builtin;
 use crate::lia_logic::lia;
 
+use crate::multi_threading::search::concurrent_search;
 use crate::parser::parser::parse_logic;
 use crate::parser::parser::MutContextSexpParser;
 use crate::parser::rc_function_var_context::Command;
@@ -266,17 +268,19 @@ fn enum_synth_for_lia(sexps: &[Sexp]) -> Either<String, String> {
         Some(s) => s,
         None => panic!("No synth function defined"),
     };
-
     let mut z3_ctx = z3::Context::new(&Config::new());
-    let res_exp = basic_search(
+
+    let arc_ctx = Arc::new(ctx.clone());
+    let res_exp = concurrent_search(
         &synth_fun,
         &constraints,
-        &defines,
-        &declare_vars,
-        &ctx,
-        &mut z3_ctx,
+        arc_ctx,
+        | | {
+            let mut z3_ctx = z3::Context::new(&Config::new());
+            z3_solver::Z3Solver::new(&defines, &declare_vars, &synth_fun, &constraints, &z3_ctx)
+        }
     );
-
+    
     match res_exp {
         Ok(e) => {
             println!("Found a solution: {}", e.to_string());

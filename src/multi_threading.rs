@@ -178,7 +178,7 @@ pub mod search {
     }
 
     
-    fn concurrent_search<
+    pub fn concurrent_search<
         'a,
         Identifier: Eq + Hash + Clone + VarIndex + Debug + Send + Sync + 'static,
         Values: Eq + Copy + Debug + Hash + 'static + Send + Sync + ConstraintPassesValue + z3_solver::GetZ3Value<'a> + z3_solver::NewPrimValues,
@@ -193,7 +193,7 @@ pub mod search {
     ) -> Result<Exp<Identifier, Values>, String> 
     where 
     {
-        let mut counter_examples: CounterExamples<Identifier, Values, Types> = CounterExamples::default();
+        let counter_examples: CounterExamples<Identifier, Values, Types> = CounterExamples::default();
         // 收集所有对 f 的调用
         let (new_constraint, callings_map) = collect_callings_of_fun(
             synth_fun.get_name(),
